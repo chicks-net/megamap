@@ -1,0 +1,45 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Data::Dumper;
+
+my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
+my @megalines = split (/\n/,$megacli);
+
+my $slot;
+my %slot_map;
+foreach my $line (@megalines) {
+	if ($line =~ /^Slot Number/) {
+		$line =~ s/.* //;
+		$slot = $line;
+	}
+	if ($line =~ /^SAS Address\(0\)/) {
+		$line =~ s/.* //;
+		$slot_map{$slot} = { megacli_sas => $line };
+		my $linux = $line;
+		my $end = hex substr($linux,-2);
+		$end--;
+		$end = sprintf("%02x",$end);
+		substr($linux,-2) = $end;
+		$slot_map{$slot}->{linux} = $linux;
+		my $ls_out = `ls -l /dev/disk/by-id | grep $linux | grep -v part`;
+		chomp($ls_out);
+		unless(length $ls_out) {
+			$slot_map{$slot}->{dev} = '?';
+			next;
+		}
+		$ls_out =~ s/.* //;
+		$ls_out =~ s{[./]}{}g;
+		$slot_map{$slot}->{dev} = $ls_out;
+	}
+}
+
+#print Dumper(\%slot_map);
+
+foreach my $slot (sort {$a <=> $b} keys %slot_map) {
+	my $dev = $slot_map{$slot}->{dev};
+	my $linux = $slot_map{$slot}->{linux};
+	print "$slot\t$dev\t$linux\n";
+}
+
