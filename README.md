@@ -1,7 +1,7 @@
 megamap
 =======
 
-MegaRAID(tm) Linux drive map
+MegaRAID(tm) Linux drive mapper
 
 Usage
 -----
