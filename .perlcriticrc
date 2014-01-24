@@ -1,0 +1,5 @@
+severity = 3
+color = 1
+
+[RegularExpressions::RequireExtendedFormatting]
+minimum_regex_length_to_complain_about = 5
