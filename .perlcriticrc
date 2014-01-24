@@ -1,5 +1,13 @@
 severity = 3
 color = 1
+color-severity-high = bold magenta
+color-severity-medium = bold magenta
+color-severity-low = blue
+color-severity-lowest = green
+
+[CodeLayout::RequireTidyCode]
+perltidyrc = .perltidyrc
+severity = 3
 
 [RegularExpressions::RequireExtendedFormatting]
 minimum_regex_length_to_complain_about = 5
