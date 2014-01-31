@@ -6,7 +6,7 @@ use Data::Dumper;
 use Readonly;
 
 our $VERSION = 0.3;
-Readonly my $END_WINDOW = 2;
+Readonly my $END_WINDOW => 2;
 
 my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
 my @megalines = split /\n/, $megacli;
