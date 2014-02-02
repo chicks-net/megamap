@@ -12,6 +12,7 @@ Requirements
 ------------
 
 * you need the `megacli` tool
+* Readonly Perl module (debian package libreadonly-perl)
 
 Notes
 -----
