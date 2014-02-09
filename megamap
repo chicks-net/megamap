@@ -11,6 +11,11 @@ Readonly my $END_WINDOW => 2;
 my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
 my @megalines = split /\n/, $megacli;
 
+if ( scalar(@megalines) == 0 ) {
+	warn "No output from megacli, maybe you need to be root\n";
+	exit 2;
+}
+
 my $slot;
 my %slot_map;
 foreach my $line (@megalines) {
