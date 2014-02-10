@@ -8,11 +8,14 @@ use Readonly;
 our $VERSION = 0.3;
 Readonly my $END_WINDOW => 2;
 
+my $username = (getpwuid $>);
+die "megacli requires root" if $username ne 'root';
+
 my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
 my @megalines = split /\n/, $megacli;
 
 if ( scalar(@megalines) == 0 ) {
-	warn "No output from megacli, maybe you need to be root\n";
+	warn "No output from megacli\n";
 	exit 2;
 }
 

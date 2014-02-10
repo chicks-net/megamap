@@ -11,7 +11,7 @@ Run the `megamap` script and it will produce a map of MegaRAID drive ID to Linux
 Requirements
 ------------
 
-* you need the `megacli` tool which probably needs to be run as `root`
+* you need the `megacli` tool which needs to be run as `root`
 * Readonly Perl module (debian package libreadonly-perl)
 
 Notes
@@ -24,4 +24,3 @@ Ideas
 -----
 
 * a script to use the megamap to blink a drive based on the linux drive `sd*`
-* warn if you are not root when you run megamap (for now it just guesses you are not root if it gets no output)
