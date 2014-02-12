@@ -5,7 +5,7 @@ use warnings;
 use Data::Dumper;
 use Readonly;
 
-our $VERSION = 0.3;
+our $VERSION = 0.8;
 Readonly my $END_WINDOW => 2;
 
 my $username = ( getpwuid $> );
