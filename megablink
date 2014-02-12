@@ -1,0 +1,44 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Data::Dumper;
+
+our $VERSION = 0.3;
+
+# root or die
+my $username = ( getpwuid $> );
+die "megacli requires root" if $username ne 'root';
+
+# CLI arguments
+die "no arguments, please specify which Linux drive(s) to blink" unless scalar @ARGV;
+my @drives = @ARGV;
+foreach my $drive (@drives) {
+	$drive =~ s{^/dev/}{}x;
+	die "invalid Linux drive spec: $drive" unless $drive =~ /^sd[a-z][a-z]?$/x;
+}
+
+my $megamap = `megamap`;
+my @maplines = split /\n/, $megamap;
+
+if ( scalar(@maplines) == 0 ) {
+	warn "No output from megamap\n";
+	exit 2;
+}
+
+my %map;
+
+foreach my $line (@maplines) {
+	chomp($line);
+	my ( $megaraid_id, $linux_drive, $wwn ) = split( /\t/, $line );
+	$map{$linux_drive} = $megaraid_id;
+}
+
+foreach my $drive (@drives) {
+	$drive =~ s{^/dev/}{}x;
+	my $megaraid_id = $map{$drive} or die "no mapping for $drive";
+	print "blinking drive $megaraid_id ($drive), ";
+	my $cmd = "megacli -PdLocate -start -physdrv[0:$megaraid_id] -a0";
+	print "running $cmd\n";
+	system($cmd);
+}
