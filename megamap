@@ -8,7 +8,7 @@ use Readonly;
 our $VERSION = 0.3;
 Readonly my $END_WINDOW => 2;
 
-my $username = (getpwuid $>);
+my $username = ( getpwuid $> );
 die "megacli requires root" if $username ne 'root';
 
 my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
