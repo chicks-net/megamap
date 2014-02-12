@@ -52,3 +52,5 @@ Ideas
 -----
 
 * try to make perlcritic happier
+* verify that it works on a system with more than 26 attached drives (the author does not currently have accesss tosuch a system)
+* support multiple adapters through command line arguments or environment variables
