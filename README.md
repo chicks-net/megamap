@@ -52,6 +52,7 @@ Notes
 Ideas
 -----
 
+* let megablink take the MegaRaid slot# instead of the Linux drive designation
 * try to make perlcritic happier
 * docs in POD
 * verify that it works on a system with more than 26 attached drives (the author does not currently have accesss tosuch a system)
