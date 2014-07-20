@@ -4,12 +4,13 @@ use strict;
 use warnings;
 use Data::Dumper;
 use Readonly;
+use Carp;
 
 our $VERSION = 0.8;
 Readonly my $END_WINDOW => 2;
 
 my $username = ( getpwuid $> );
-die "megacli requires root" if $username ne 'root';
+croak "megacli requires root" if $username ne 'root';
 
 my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
 my @megalines = split /\n/, $megacli;
@@ -22,11 +23,11 @@ if ( scalar(@megalines) == 0 ) {
 my $slot;
 my %slot_map;
 foreach my $line (@megalines) {
-	if ( $line =~ /^Slot Number/ ) {
+	if ( $line =~ /^Slot[ ]Number/x ) {
 		$line =~ s/.* //;
 		$slot = $line;
 	}
-	if ( $line =~ /^SAS Address\(0\)/ ) {
+	if ( $line =~ /^SAS[ ]Address\(0\)/x ) {
 		$line =~ s/.* //;
 		$slot_map{$slot} = { megacli_sas => $line };
 		my $linux = $line;
