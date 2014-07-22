@@ -11,3 +11,6 @@ severity = 3
 
 [RegularExpressions::RequireExtendedFormatting]
 minimum_regex_length_to_complain_about = 5
+
+[Variables::ProhibitPunctuationVars]
+severity = 3

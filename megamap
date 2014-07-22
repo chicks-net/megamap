@@ -5,11 +5,12 @@ use warnings;
 use Data::Dumper;
 use Readonly;
 use Carp;
+use English qw( -no_match_vars );
 
 our $VERSION = 0.8;
 Readonly my $END_WINDOW => 2;
 
-my $username = ( getpwuid $> );
+my $username = ( getpwuid $EUID );
 croak "megacli requires root" if $username ne 'root';
 
 my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;

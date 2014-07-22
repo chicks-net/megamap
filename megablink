@@ -4,11 +4,12 @@ use strict;
 use warnings;
 use Data::Dumper;
 use Carp;
+use English qw( -no_match_vars );
 
 our $VERSION = 0.3;
 
 # root or die
-my $username = ( getpwuid $> );
+my $username = ( getpwuid $EUID );
 croak "megacli requires root" if $username ne 'root';
 
 # CLI arguments
