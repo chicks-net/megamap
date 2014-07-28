@@ -13,13 +13,10 @@ my $username = ( getpwuid $EUID );
 croak "megacli requires root" if $username ne 'root';
 
 # CLI arguments
-croak "no arguments, please specify which Linux drive(s) to blink" unless scalar @ARGV;
+croak "no arguments... please specify which drives to blink" unless scalar @ARGV;
 my @drives = @ARGV;
-foreach my $drive (@drives) {
-	$drive =~ s{^/dev/}{}x;
-	croak "invalid Linux drive spec: $drive" unless $drive =~ /^sd[a-z][a-z]?$/x;
-}
 
+# pull in megamap
 my $megamap = `megamap`;
 my @maplines = split /\n/, $megamap;
 
@@ -36,9 +33,18 @@ foreach my $line (@maplines) {
 	$map{$linux_drive} = $megaraid_id;
 }
 
+# blink all the drives!
 foreach my $drive (@drives) {
 	$drive =~ s{^/dev/}{}x;
-	my $megaraid_id = $map{$drive} or croak "no mapping for $drive";
+	unless ($drive =~ /^sd[a-z][a-z]?$/x or $drive =~ /^\d+$/ ) {
+		croak "invalid drive spec '$drive', try sdc or 13";
+	}
+	my $megaraid_id;
+	if ($drive =~ /^\d+$/ ) {
+		$megaraid_id = $drive;
+	} else {
+		$megaraid_id = $map{$drive} or croak "no mapping for $drive";
+	}
 	print "blinking drive $megaraid_id ($drive), ";
 	my $cmd = "megacli -PdLocate -start -physdrv[0:$megaraid_id] -a0";
 	print "running $cmd\n";
