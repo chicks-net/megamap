@@ -36,11 +36,11 @@ foreach my $line (@maplines) {
 # blink all the drives!
 foreach my $drive (@drives) {
 	$drive =~ s{^/dev/}{}x;
-	unless ($drive =~ /^sd[a-z][a-z]?$/x or $drive =~ /^\d+$/ ) {
+	unless ( $drive =~ /^sd[a-z][a-z]?$/x or $drive =~ /^\d+$/ ) {
 		croak "invalid drive spec '$drive', try sdc or 13";
 	}
 	my $megaraid_id;
-	if ($drive =~ /^\d+$/ ) {
+	if ( $drive =~ /^\d+$/ ) {
 		$megaraid_id = $drive;
 	} else {
 		$megaraid_id = $map{$drive} or croak "no mapping for $drive";
