@@ -33,7 +33,10 @@ Usage
 	10      sdl     0x5000cca02ab9e0c0
 	11      sdm     0x5000cca02ab9b350
 
-`megablink` takes arguments of linux drives like `/dev/sda` or without the full path such as `sdb` and starts that drive blinking.  Unblinking happens when the drive is replaced automatically, so there is no reversal script at this point.
+`megablink` takes arguments of linux drives like `/dev/sda` or without the full
+path such as `sdb` and starts that drive blinking.  Unblinking happens when the
+drive is replaced automatically, but there is also a `megaunblink` in case you
+accidentally blink the wrong drive.  `megablink -u` also unblinks a drive.
 
 	$ sudo ./megablink /dev/sdn
 	blinking drive 8 (sdn), running megacli -PdLocate -start -physdrv[0:8] -a0

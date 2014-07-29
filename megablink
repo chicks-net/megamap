@@ -5,6 +5,7 @@ use warnings;
 use Data::Dumper;
 use Carp;
 use English qw( -no_match_vars );
+use Getopt::Long;
 
 our $VERSION = 0.3;
 
@@ -13,6 +14,12 @@ my $username = ( getpwuid $EUID );
 croak "megacli requires root" if $username ne 'root';
 
 # CLI arguments
+my $unblink = 0;
+
+GetOptions(
+        'u|unblink'  => \$unblink,
+) or croak "error in command line args";
+
 croak "no arguments... please specify which drives to blink" unless scalar @ARGV;
 my @drives = @ARGV;
 
@@ -46,7 +53,9 @@ foreach my $drive (@drives) {
 		$megaraid_id = $map{$drive} or croak "no mapping for $drive";
 	}
 	print "blinking drive $megaraid_id ($drive), ";
-	my $cmd = "megacli -PdLocate -start -physdrv[0:$megaraid_id] -a0";
+	my $gonogo = "-start";
+	$gonogo = "stop" if $unblink;
+	my $cmd = "megacli -PdLocate $gonogo -physdrv[0:$megaraid_id] -a0";
 	print "running $cmd\n";
 	system($cmd);
 }
