@@ -51,6 +51,7 @@ Notes
 * the Linux WWN is off-by-one from what megacli shows.
 * thanks to http://serverfault.com/questions/381177/megacli-get-the-dev-sd-device-name-for-a-logical-drive/ for getting me to look in `/dev/disk/by-id`
 * thanks to http://www.network-administrator.co.uk/?p=575 for providing a handy reference to the megacli command structure
+* [lsidrivemap](https://github.com/louwrentius/lsidrivemap) is similar to megamap, but written in python and it has a nice table output format that shows the layout of the drives on the front of the server.
 
 Ideas
 -----
