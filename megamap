@@ -10,10 +10,20 @@ use English qw( -no_match_vars );
 our $VERSION = 0.8;
 Readonly my $END_WINDOW => 2;
 
+my $debug = $ENV{MEGAMAP_DEBUG} || 0;
+
 my $username = ( getpwuid $EUID );
 croak "megacli requires root" if $username ne 'root';
 
-my $megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
+my $megacli;
+
+unless ($debug) {
+	$megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
+} else {
+	print "# MEGAMAP_DEBUG=$debug\n";
+	$megacli = `cat /tmp/megacli.out`;
+}
+
 my @megalines = split /\n/, $megacli;
 
 if ( scalar(@megalines) == 0 ) {
@@ -37,7 +47,13 @@ foreach my $line (@megalines) {
 		$end = sprintf "%02x", $end;
 		substr( $linux, 0 - $END_WINDOW ) = $end;
 		$slot_map{$slot}->{linux} = $linux;
-		my $ls_out = `ls -l /dev/disk/by-id | grep $linux | grep -v part`;
+
+		my $ls_out;
+		unless ($debug) {
+			$ls_out = `ls -l /dev/disk/by-id | grep $linux | grep -v part`;
+		} else {
+			$ls_out = `grep $linux /tmp/ls.out`;
+		}
 		chomp($ls_out);
 
 		if ( !length $ls_out ) {

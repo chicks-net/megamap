@@ -53,6 +53,13 @@ Notes
 * thanks to http://www.network-administrator.co.uk/?p=575 for providing a handy reference to the megacli command structure
 * [lsidrivemap](https://github.com/louwrentius/lsidrivemap) is similar to megamap, but written in python and it has a nice table output format that shows the layout of the drives on the front of the server.
 
+Debug Mode
+----------
+
+If you set the `MEGAMAP_DEBUG` environment variable it won't run `megacli` or
+`ls` directly, but instead it will pull the data out of static files
+`/tmp/megacli.out` and `/tmp/ls.out`.
+
 Ideas
 -----
 
