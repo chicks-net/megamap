@@ -7,7 +7,7 @@ use Readonly;
 use Carp;
 use English qw( -no_match_vars );
 
-our $VERSION = 0.8;
+our $VERSION = 0.9;
 Readonly my $END_WINDOW => 7;
 
 my $debug = $ENV{MEGAMAP_DEBUG} || 0;
