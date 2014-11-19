@@ -45,19 +45,10 @@ foreach my $line (@megalines) {
 		my $linux2 = $line;
 		my $end = hex substr( $linux, 0 - $END_WINDOW );
 		$end--;
-		my $end2 = $end;
 		$end = sprintf "%07x", $end;
 		substr( $linux, 0 - $END_WINDOW ) = $end;
-		$end2--;
-		$end2 = sprintf "%07x", $end2;
-		substr( $linux2, 0 - $END_WINDOW ) = $end2;
+		substr( $linux2, -1 ) = '.';
 		$linux .= '|' . $linux2;
-
-		my $linux3 = $linux2;
-		substr( $linux3, -1 ) = '.';
-		$linux .= '|' . $linux3;
-
-		$slot_map{$slot}->{linux} = $linux;
 
 		my $ls_out;
 		unless ($debug) {
@@ -66,12 +57,16 @@ foreach my $line (@megalines) {
 			$ls_out = `egrep '($linux)' /tmp/ls.out`;
 		}
 		chomp($ls_out);
-		##print "$linux -> $ls_out\n";
+		print "$linux -> $ls_out\n";
 
 		if ( !length $ls_out ) {
 			$slot_map{$slot}->{dev} = q{?};
 			next;
 		}
+
+		$ls_out =~ /wwn-(0x[\da-f]+) /;
+		$slot_map{$slot}->{linux} = $1 || 'bug';
+
 		$ls_out =~ s/.* //;
 		$ls_out =~ s{[./]}{}g;
 		$slot_map{$slot}->{dev} = $ls_out;
