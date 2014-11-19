@@ -8,7 +8,7 @@ use Carp;
 use English qw( -no_match_vars );
 
 our $VERSION = 0.8;
-Readonly my $END_WINDOW => 2;
+Readonly my $END_WINDOW => 7;
 
 my $debug = $ENV{MEGAMAP_DEBUG} || 0;
 
@@ -42,19 +42,31 @@ foreach my $line (@megalines) {
 		$line =~ s/.* //;
 		$slot_map{$slot} = { megacli_sas => $line };
 		my $linux = $line;
+		my $linux2 = $line;
 		my $end = hex substr( $linux, 0 - $END_WINDOW );
 		$end--;
-		$end = sprintf "%02x", $end;
+		my $end2 = $end;
+		$end = sprintf "%07x", $end;
 		substr( $linux, 0 - $END_WINDOW ) = $end;
+		$end2--;
+		$end2 = sprintf "%07x", $end2;
+		substr( $linux2, 0 - $END_WINDOW ) = $end2;
+		$linux .= '|' . $linux2;
+
+		my $linux3 = $linux2;
+		substr( $linux3, -1 ) = '.';
+		$linux .= '|' . $linux3;
+
 		$slot_map{$slot}->{linux} = $linux;
 
 		my $ls_out;
 		unless ($debug) {
-			$ls_out = `ls -l /dev/disk/by-id | grep $linux | grep -v part`;
+			$ls_out = `ls -l /dev/disk/by-id | egrep '($linux)' | grep -v part`;
 		} else {
-			$ls_out = `grep $linux /tmp/ls.out`;
+			$ls_out = `egrep '($linux)' /tmp/ls.out`;
 		}
 		chomp($ls_out);
+		##print "$linux -> $ls_out\n";
 
 		if ( !length $ls_out ) {
 			$slot_map{$slot}->{dev} = q{?};
