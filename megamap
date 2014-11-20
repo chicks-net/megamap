@@ -57,7 +57,7 @@ foreach my $line (@megalines) {
 			$ls_out = `egrep '($linux)' /tmp/ls.out`;
 		}
 		chomp($ls_out);
-		print "$linux -> $ls_out\n";
+		## print "$linux -> $ls_out\n";
 
 		if ( !length $ls_out ) {
 			$slot_map{$slot}->{dev} = q{?};
@@ -76,7 +76,7 @@ foreach my $line (@megalines) {
 	}
 }
 
-#print Dumper(\%slot_map);
+## print Dumper(\%slot_map);
 
 foreach my $slot ( sort { $a <=> $b } keys %slot_map ) {
 	my $dev   = $slot_map{$slot}->{dev};
