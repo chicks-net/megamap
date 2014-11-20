@@ -64,8 +64,11 @@ foreach my $line (@megalines) {
 			next;
 		}
 
-		$ls_out =~ /wwn-(0x[\da-f]+) /;
-		$slot_map{$slot}->{linux} = $1 || 'bug';
+		my $linux_wwn = 'unk';
+		if ( $ls_out =~ /wwn-(0x[\da-f]+) / ) {
+			$linux_wwn = $1 || 'bug';
+		}
+		$slot_map{$slot}->{linux} = $linux_wwn;
 
 		$ls_out =~ s/.* //;
 		$ls_out =~ s{[./]}{}g;
