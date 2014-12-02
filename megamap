@@ -41,9 +41,9 @@ foreach my $line (@megalines) {
 	if ( $line =~ /^SAS[ ]Address\(0\)/x ) {
 		$line =~ s/.* //;
 		$slot_map{$slot} = { megacli_sas => $line };
-		my $linux = $line;
+		my $linux  = $line;
 		my $linux2 = $line;
-		my $end = hex substr( $linux, 0 - $END_WINDOW );
+		my $end    = hex substr( $linux, 0 - $END_WINDOW );
 		$end--;
 		$end = sprintf "%07x", $end;
 		substr( $linux, 0 - $END_WINDOW ) = $end;
@@ -65,7 +65,7 @@ foreach my $line (@megalines) {
 		}
 
 		my $linux_wwn = 'unk';
-		if ( $ls_out =~ /wwn-(0x[\da-f]+) / ) {
+		if ( $ls_out =~ /wwn-(0x[\da-f]+)[ ]/x ) {
 			$linux_wwn = $1 || 'bug';
 		}
 		$slot_map{$slot}->{linux} = $linux_wwn;
