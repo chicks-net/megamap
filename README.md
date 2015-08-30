@@ -1,7 +1,7 @@
 megamap
 =======
 
-![logo](art/megamap-final-logo-500.png) MegaRAID(tm) Linux drive mapper
+![logo](art/megamap-final-logo-100.png) MegaRAID(tm) Linux drive mapper
 
 Usage
 -----
