@@ -1,6 +1,7 @@
-# megamap ![logo](art/megamap-final-logo-100.png)
+![logo](art/megamap-final-logo-100.png)
+# megamap
 
-MegaRAID&tm; Linux drive mapper
+MegaRAID&trade; Linux drive mapper
 
 ## Usage
 
