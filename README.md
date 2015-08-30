@@ -1,7 +1,7 @@
 megamap
 =======
 
-MegaRAID(tm) Linux drive mapper
+![logo](art/megamap-final-logo-500.png) MegaRAID(tm) Linux drive mapper
 
 Usage
 -----
@@ -44,6 +44,9 @@ accidentally blink the wrong drive.  `megablink -u` also unblinks a drive.
 	Adapter: 0: Device at EnclId-0 SlotId-8  -- PD Locate Start Command was successfully sent to Firmware 
 
 	Exit Code: 0x00
+
+
+![array](art/server-array-final-1000-white.png)
 
 Notes
 -----
