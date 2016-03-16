@@ -57,7 +57,11 @@ accidentally blink the wrong drive.  `megablink -u` also unblinks a drive.
 
 If you set the `MEGAMAP_DEBUG` environment variable it won't run `megacli` or
 `ls` directly, but instead it will pull the data out of static files
-`/tmp/megacli.out` and `/tmp/ls.out`.
+`/tmp/megacli.out` and `/tmp/ls.out`.  If everything is working properly you
+should be able to generate those files like so:
+
+	megacli -pdlist -a0 | egrep 'Slot|^SAS' > /tmp/megacli.out
+	ls -l /dev/disk/by-id | grep -v part > /tmp/ls.out
 
 ## Ideas
 
