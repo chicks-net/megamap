@@ -79,8 +79,8 @@ foreach my $line (@megalines) {
 ## print Dumper(\%slot_map);
 
 foreach my $slot ( sort { $a <=> $b } keys %slot_map ) {
-	my $dev   = $slot_map{$slot}->{dev};
-	my $linux = $slot_map{$slot}->{linux};
-	print "$slot\t$dev\t$linux\n";
+	my $dev         = $slot_map{$slot}->{dev};
+	my $linux_drive = $slot_map{$slot}->{linux} || '???';
+	print "$slot\t$dev\t$linux_drive\n";
 }
 
