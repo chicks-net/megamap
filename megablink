@@ -50,11 +50,11 @@ foreach my $drive (@drives) {
 	if ( $drive =~ /^\d+$/ ) {
 		$megaraid_id = $drive;
 	} else {
-		$megaraid_id = $map{$drive} or croak "no mapping for $drive";
+		$megaraid_id = $map{$drive}
 	}
+	croak "no mapping for $drive" unless defined $megaraid_id;
 	print "blinking drive $megaraid_id ($drive), ";
-	my $gonogo = "-start";
-	$gonogo = "stop" if $unblink;
+	my $gonogo = $unblink ? "stop" : "-start";
 	my $cmd = "megacli -PdLocate $gonogo -physdrv[0:$megaraid_id] -a0";
 	print "running $cmd\n";
 	system($cmd);
