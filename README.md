@@ -53,6 +53,19 @@ accidentally blink the wrong drive.  `megablink -u` also unblinks a drive.
 * :snake: [lsidrivemap](https://github.com/louwrentius/lsidrivemap) is similar to `megamap`, but written in python and it has a nice table output format that shows the layout of the drives on the front of the server.
 * :clap: thanks to [Harry Lee](https://github.com/tclh123) for providing my first bug report and testing my eventual fix.  It is really :doughnut: great to know one person is using my project.
 
+## Support
+
+Please file a new [issue on github](https://github.com/chicks-net/megamap/issues) with
+the output from:
+
+* `megacli -pdlist -a0 | egrep 'Slot|^SAS'`
+* `ls -l /dev/disk/by-id`
+* `uname -a`
+* `lsb_release -a`
+
+The included script `megatrouble` will give you all of this in a format ready to post into an issue.
+
+
 ## Debug Mode
 
 If you set the `MEGAMAP_DEBUG` environment variable it won't run `megacli` or

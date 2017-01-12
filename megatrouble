@@ -1,0 +1,16 @@
+#!/bin/bash
+
+echo "megacli:"
+megacli -pdlist -a0 | egrep 'Slot|^SAS'
+
+echo ""
+echo "/dev/disk/by-id:"
+ls -l /dev/disk/by-id
+
+echo ""
+echo "uname:"
+uname -a
+
+echo ""
+echo "lsb_release"
+lsb_release -a
