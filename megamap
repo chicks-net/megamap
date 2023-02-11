@@ -6,22 +6,26 @@ use Data::Dumper;
 use Readonly;
 use Carp;
 use English qw( -no_match_vars );
+use Getopt::Long;
 
 our $VERSION = 0.9;
 Readonly my $END_WINDOW => 7;
 
-my $debug = $ENV{MEGAMAP_DEBUG} || 0;
+my %opts;
+GetOptions(\%opts, 'help', 'a=i','debug=s');
+
+my $debug = $ENV{MEGAMAP_DEBUG} || $opts{debug} || 0;
+$opts{a} = '0' if ! exists $opts{a};
 
 my $username = ( getpwuid $EUID );
-croak "megacli requires root" if $username ne 'root';
+croak 'megacli requires root' if $username ne 'root';
 
 my $megacli;
 
-unless ($debug) {
-	$megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
-} else {
-	print "# MEGAMAP_DEBUG=$debug\n";
+if ($debug and -e '/tmp/megacli.out') {
 	$megacli = `cat /tmp/megacli.out`;
+} else {
+	$megacli = `megacli -pdlist -a$opts{a} | egrep 'Slot|^SAS'`;
 }
 
 my @megalines = split /\n/, $megacli;
@@ -51,10 +55,11 @@ foreach my $line (@megalines) {
 		$linux .= '|' . $linux2;
 
 		my $ls_out;
-		unless ($debug) {
-			$ls_out = `ls -l /dev/disk/by-id | egrep '($linux)' | grep -v part`;
-		} else {
+		if ($debug and -e '/tmp/ls.out') {
 			$ls_out = `egrep '($linux)' /tmp/ls.out`;
+		} else {
+      print "ls -l /dev/disk/by-id | egrep '($linux)' | grep -v part\n" if $debug;
+			$ls_out = `ls -l /dev/disk/by-id | egrep '($linux)' | grep -v part`;
 		}
 		chomp($ls_out);
 		## print "$linux -> $ls_out\n";
