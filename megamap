@@ -18,7 +18,7 @@ croak "megacli requires root" if $username ne 'root';
 my $megacli;
 
 unless ($debug) {
-	$megacli = `megacli -pdlist -a0 | egrep 'Slot|^SAS'`;
+	$megacli = `megacli -pdlist -a0 | egrep '^Enclosure Device|^Slot|^SAS|^WWN'`;
 } else {
 	print "# MEGAMAP_DEBUG=$debug\n";
 	$megacli = `cat /tmp/megacli.out`;
@@ -31,14 +31,19 @@ if ( scalar(@megalines) == 0 ) {
 	exit 2;
 }
 
+my $encid;
 my $slot;
 my %slot_map;
 foreach my $line (@megalines) {
+	if ( $line =~ /^Enclosure[ ]Device[ ]ID/x ) {
+		$line =~ s/.* //;
+		$encid = $line;
+	}
 	if ( $line =~ /^Slot[ ]Number/x ) {
 		$line =~ s/.* //;
-		$slot = $line;
+		$slot = $encid.":".$line;
 	}
-	if ( $line =~ /^SAS[ ]Address\(0\)/x ) {
+	if ( $line =~ /^WWN/x ) {
 		$line =~ s/.* //;
 		$slot_map{$slot} = { megacli_sas => $line };
 		my $linux  = $line;
@@ -74,11 +79,49 @@ foreach my $line (@megalines) {
 		$ls_out =~ s{[./]}{}g;
 		$slot_map{$slot}->{dev} = $ls_out;
 	}
+	if ( $line =~ /^SAS[ ]Address\(0\)/x ) {
+		if ( ! $slot_map{$slot}->{linux} ) {
+			$line =~ s/.* //;
+			$slot_map{$slot} = { megacli_sas => $line };
+			my $linux  = $line;
+			my $linux2 = $line;
+			my $end    = hex substr( $linux, 0 - $END_WINDOW );
+			$end--;
+			$end = sprintf "%07x", $end;
+			substr( $linux, 0 - $END_WINDOW ) = $end;
+			substr( $linux2, -1 ) = '.';
+			$linux .= '|' . $linux2;
+
+			my $ls_out;
+			unless ($debug) {
+				$ls_out = `ls -l /dev/disk/by-id | egrep '($linux)' | grep -v part`;
+			} else {
+				$ls_out = `egrep '($linux)' /tmp/ls.out`;
+			}
+			chomp($ls_out);
+			## print "$linux -> $ls_out\n";
+
+			if ( !length $ls_out ) {
+				$slot_map{$slot}->{dev} = q{?};
+				next;
+			}
+
+			my $linux_wwn = 'unk';
+			if ( $ls_out =~ /wwn-(0x[\da-f]+)[ ]/x ) {
+				$linux_wwn = $1 || 'bug';
+			}
+			$slot_map{$slot}->{linux} = $linux_wwn;
+
+			$ls_out =~ s/.* //;
+			$ls_out =~ s{[./]}{}g;
+			$slot_map{$slot}->{dev} = $ls_out;
+		}
+	}
 }
 
 ## print Dumper(\%slot_map);
 
-foreach my $slot ( sort { $a <=> $b } keys %slot_map ) {
+foreach my $slot ( sort { $a cmp $b } keys %slot_map ) {
 	my $dev         = $slot_map{$slot}->{dev};
 	my $linux_drive = $slot_map{$slot}->{linux} || '???';
 	print "$slot\t$dev\t$linux_drive\n";
