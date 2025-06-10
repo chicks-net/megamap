@@ -55,7 +55,7 @@ foreach my $drive (@drives) {
 	croak "no mapping for $drive" unless defined $megaraid_id;
 	print "blinking drive $megaraid_id ($drive), ";
 	my $gonogo = $unblink ? "stop" : "-start";
-	my $cmd = "megacli -PdLocate $gonogo -physdrv[0:$megaraid_id] -a0";
+	my $cmd = "megacli -PdLocate $gonogo -physdrv[$megaraid_id] -a0";
 	print "running $cmd\n";
 	system($cmd);
 }
