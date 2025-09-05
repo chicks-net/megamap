@@ -1,4 +1,5 @@
 ![logo](art/megamap-final-logo-100.png)
+
 # megamap
 
 MegaRAID&trade; Linux drive mapper
@@ -9,10 +10,10 @@ Run the `megamap` script and it will produce a map of MegaRAID drive ID to Linux
 
 ## Requirements
 
-* you need the [`megacli`](http://askubuntu.com/questions/488612/how-do-i-install-the-lsi-megacli-in-ubuntu) tool which needs to be run as `root`
-* [Readonly](https://metacpan.org/pod/Readonly) Perl module (debian package `libreadonly-perl`)
+- you need the [`megacli`](http://askubuntu.com/questions/488612/how-do-i-install-the-lsi-megacli-in-ubuntu) tool which needs to be run as `root`
+- [Readonly](https://metacpan.org/pod/Readonly) Perl module (debian package `libreadonly-perl`)
 
-## Usage
+## Usage Examples
 
 `megamap` takes no arguments and outputs a table of drive mappings such as:
 
@@ -42,29 +43,27 @@ accidentally blink the wrong drive.  `megablink -u` also unblinks a drive.
 
 	Exit Code: 0x00
 
-
 ![array](art/server-array-final-1000-white.png)
 
 ## Notes
 
-* :foggy: the Linux WWN is off-by-one or a few from what `megacli` shows.
-* :clap: thanks to http://serverfault.com/questions/381177/megacli-get-the-dev-sd-device-name-for-a-logical-drive/ for getting me to look in `/dev/disk/by-id`
-* :clap: thanks to http://www.network-administrator.co.uk/?p=575 for providing a handy reference to the `megacli` command structure
-* :snake: [lsidrivemap](https://github.com/louwrentius/lsidrivemap) is similar to `megamap`, but written in python and it has a nice table output format that shows the layout of the drives on the front of the server.
-* :clap: thanks to [Harry Lee](https://github.com/tclh123) for providing my first bug report and testing my eventual fix.  It is really :doughnut: great to know one person is using my project.
+- :foggy: the Linux WWN is off-by-one or a few from what `megacli` shows.
+- :clap: thanks to <http://serverfault.com/questions/381177/megacli-get-the-dev-sd-device-name-for-a-logical-drive/> for getting me to look in `/dev/disk/by-id`
+- :clap: thanks to <http://www.network-administrator.co.uk/?p=575> for providing a handy reference to the `megacli` command structure
+- :snake: [lsidrivemap](https://github.com/louwrentius/lsidrivemap) is similar to `megamap`, but written in python and it has a nice table output format that shows the layout of the drives on the front of the server.
+- :clap: thanks to [Harry Lee](https://github.com/tclh123) for providing my first bug report and testing my eventual fix.  It is really :doughnut: great to know one person is using my project.
 
 ## Support
 
 Please file a new [issue on github](https://github.com/chicks-net/megamap/issues) with
 the output from:
 
-* `megacli -pdlist -a0 | egrep 'Slot|^SAS'`
-* `ls -l /dev/disk/by-id`
-* `uname -a`
-* `lsb_release -a`
+- `megacli -pdlist -a0 | egrep 'Slot|^SAS'`
+- `ls -l /dev/disk/by-id`
+- `uname -a`
+- `lsb_release -a`
 
 The included script `megatrouble` will give you all of this in a format ready to post into an issue.
-
 
 ## Debug Mode
 
@@ -78,6 +77,6 @@ should be able to generate those files like so:
 
 ## Ideas
 
-* docs in POD
-* verify that it works on a system with more than 26 attached drives (the author does not currently have access to such a system)
-* support multiple adapters through command line arguments or environment variables
+- docs in POD
+- verify that it works on a system with more than 26 attached drives (the author does not currently have access to such a system)
+- support multiple adapters through command line arguments or environment variables
