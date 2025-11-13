@@ -1,0 +1,2 @@
+# treat "just" as docs so it doesn't total more than the source code in the repo
+.just/*  linguist-documentation
