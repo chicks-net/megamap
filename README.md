@@ -17,31 +17,35 @@ Run the `megamap` script and it will produce a map of MegaRAID drive ID to Linux
 
 `megamap` takes no arguments and outputs a table of drive mappings such as:
 
-	$ sudo megamap
-	0       sdc     0x5000cca02ab9e1a0
-	1       sdf     0x5000cca02ab9b548
-	2       sde     0x5000cca02ab9bad0
-	3       sdd     0x5000cca02ab9b928
-	4       sdh     0x5000cca02ab9b5e8
-	5       sdg     0x5000cca02ab9b86c
-	6       sdj     0x5000cca02ab9b8c0
-	7       sdi     0x5000cca02ab9dde8
-	8       sdn     0x5000cca02ab9b34c
-	9       sdk     0x5000cca02ab9e7d8
-	10      sdl     0x5000cca02ab9e0c0
-	11      sdm     0x5000cca02ab9b350
+```ShellOutput
+$ sudo megamap
+0       sdc     0x5000cca02ab9e1a0
+1       sdf     0x5000cca02ab9b548
+2       sde     0x5000cca02ab9bad0
+3       sdd     0x5000cca02ab9b928
+4       sdh     0x5000cca02ab9b5e8
+5       sdg     0x5000cca02ab9b86c
+6       sdj     0x5000cca02ab9b8c0
+7       sdi     0x5000cca02ab9dde8
+8       sdn     0x5000cca02ab9b34c
+9       sdk     0x5000cca02ab9e7d8
+10      sdl     0x5000cca02ab9e0c0
+11      sdm     0x5000cca02ab9b350
+```
 
 `megablink` takes arguments of linux drives like `/dev/sda` or without the full
 path such as `sdb` and starts that drive blinking.  Unblinking happens when the
 drive is replaced automatically, but there is also a `megaunblink` in case you
 accidentally blink the wrong drive.  `megablink -u` also unblinks a drive.
 
-	$ sudo ./megablink /dev/sdn
-	blinking drive 8 (sdn), running megacli -PdLocate -start -physdrv[0:8] -a0
-                                     
-	Adapter: 0: Device at EnclId-0 SlotId-8  -- PD Locate Start Command was successfully sent to Firmware 
+```ShellOutput
+$ sudo ./megablink /dev/sdn
+blinking drive 8 (sdn), running megacli -PdLocate -start -physdrv[0:8] -a0
+                                 
+Adapter: 0: Device at EnclId-0 SlotId-8  -- PD Locate Start Command was successfully sent to Firmware 
 
-	Exit Code: 0x00
+Exit Code: 0x00
+```
 
 ![array](art/server-array-final-1000-white.png)
 
@@ -63,7 +67,8 @@ the output from:
 - `uname -a`
 - `lsb_release -a`
 
-The included script `megatrouble` will give you all of this in a format ready to post into an issue.
+The included script `megatrouble` will give you all of this in a format ready
+to post into an issue.
 
 ## Debug Mode
 
@@ -72,8 +77,10 @@ If you set the `MEGAMAP_DEBUG` environment variable it won't run `megacli` or
 `/tmp/megacli.out` and `/tmp/ls.out`.  If everything is working properly you
 should be able to generate those files like so:
 
-	megacli -pdlist -a0 | egrep 'Slot|^SAS' > /tmp/megacli.out
-	ls -l /dev/disk/by-id | grep -v part > /tmp/ls.out
+```ShellOutput
+megacli -pdlist -a0 | egrep 'Slot|^SAS' > /tmp/megacli.out
+ls -l /dev/disk/by-id | grep -v part > /tmp/ls.out
+```
 
 ## Ideas
 
