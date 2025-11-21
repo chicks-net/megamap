@@ -1,5 +1,8 @@
 # git/gh process justfile
 
+# check out the RELEASE_NOTES.md for the detailed history of this file
+# the README.md in this directory also might be useful to you
+
 # some useful variables
 release_branch := "main"
 
@@ -8,9 +11,9 @@ release_branch := "main"
 sync:
     git checkout "{{ release_branch }}"
     git pull
-    git stp
+    git status --porcelain # stp
 
-# PR create 3.7
+# PR create v3.9
 [group('Process')]
 pr: _has_commits && pr_checks
     #!/usr/bin/env bash
@@ -23,8 +26,8 @@ pr: _has_commits && pr_checks
         just _pr-hook
     fi
 
-    git stp
-    git pushup
+    git status --porcelain # stp
+    git push -u origin HEAD # pushup
 
     CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
     #COMMIT_COUNT=$(git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | wc -l)
@@ -33,14 +36,16 @@ pr: _has_commits && pr_checks
     FIRST_COMMIT_MESSAGE=$(git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | sed -e 's/^[+] [0-9a-f]* //' | head -1)
 
     bodyfile=$(mktemp /tmp/justfile.XXXXXX)
-    echo "## Done" >> $bodyfile
-    echo "" >> $bodyfile
-    git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | sed -e 's/^[+] [0-9a-f]* /- /' >> $bodyfile
-    echo "" >> $bodyfile
-    echo "" >> $bodyfile
-    echo "## Meta" >> $bodyfile
-    echo "" >> $bodyfile
-    echo "(Automated in \`.just/gh-process.just\`.)" >> $bodyfile
+    {
+        echo "## Done"
+        echo ""
+        git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | sed -e 's/^[+] [0-9a-f]* /- /'
+        echo ""
+        echo ""
+        echo "## Meta"
+        echo ""
+        echo "(Automated in \`.just/gh-process.just\`.)"
+    } >> "$bodyfile"
 
     echo ''
     cat "$bodyfile"
@@ -67,8 +72,8 @@ merge: _on_a_branch && sync
 [group('Process')]
 branch branchname: _main_branch
     #!/usr/bin/env bash
-    NOW=`just utcdate`
-    git co -b "$USER/$NOW-{{ branchname }}"
+    NOW=$(just utcdate)
+    git checkout -b "$USER/$NOW-{{ branchname }}"
 
 # view PR in web browser
 [group('Process')]
@@ -137,12 +142,13 @@ pr_checks:
 
     echo "🐈‍⬛😾 Copilot suggestions..."
     PR_META=$(gh pr view --json number,headRepository,headRepositoryOwner)
-    PR_REPO_NAME=$(echo $PR_META | jq -r '.headRepository.name')
-    PR_REPO_OWNER=$(echo $PR_META | jq -r '.headRepositoryOwner.login')
-    PR_NUMBER=$(echo $PR_META | jq '.number')
+    PR_REPO_NAME=$(echo "$PR_META" | jq -r '.headRepository.name')
+    PR_REPO_OWNER=$(echo "$PR_META" | jq -r '.headRepositoryOwner.login')
+    PR_NUMBER=$(echo "$PR_META" | jq '.number')
     #echo "$PR_NUMBER $PR_REPO_OWNER/$PR_REPO_NAME"
+    # shellcheck disable=SC2016
     gh api graphql \
-        -F owner=$PR_REPO_OWNER -F name=$PR_REPO_NAME -F pr=$PR_NUMBER \
+        -F owner="$PR_REPO_OWNER" -F name="$PR_REPO_NAME" -F pr="$PR_NUMBER" \
         --jq '[ .data.repository.pullRequest.reviews.nodes.[] | select(.author.login=="copilot-pull-request-reviewer") | .comments.nodes.[] ]' \
         -f query='
         query($name: String!, $owner: String!, $pr: Int!) {
