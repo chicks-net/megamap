@@ -13,12 +13,11 @@ sync:
     git pull
     git status --porcelain # stp
 
-# PR create v3.9
+# PR create v4.4
 [group('Process')]
 pr: _has_commits && pr_checks
     #!/usr/bin/env bash
-    set -euxo pipefail # strict mode
-    set +x # leave tracing off...
+    set -euo pipefail # strict mode
 
     # handle optional pre-pr hook (for things like hugo)
     if [[ -e ".just/pr-hook.just" ]]; then
@@ -122,6 +121,18 @@ _main_branch:
         exit 102
     fi
 
+# error if not on a branch with a pull request
+[group('sanity check')]
+[no-cd]
+_on_a_pull_request: _on_a_branch
+    #!/bin/bash
+    set -euo pipefail # strict mode
+
+    if \! gh pr view &>/dev/null; then
+        echo "No PR found for current branch"
+        exit 103
+    fi
+
 # print UTC date in ISO format
 [group('Utility')]
 [no-cd]
@@ -132,10 +143,12 @@ _main_branch:
 [group('Process')]
 release rel_version:
     gh release create {{rel_version}} --generate-notes
+    sleep 1
+    git pull
 
 # watch GHAs then check for Copilot suggestions
 [group('Process')]
-pr_checks:
+pr_checks: _on_a_pull_request && claude_review
     #!/usr/bin/env bash
 
     gh pr checks --watch -i 5
@@ -174,6 +187,216 @@ pr_checks:
         }
         '
 
+    # chains to claude_review
+
+# Claude's latest PR code review
+[group('Process')]
+claude_review: _on_a_pull_request
+    #!/usr/bin/env bash
+
     # did Claude comment?
     echo -e "\n\n🟧🟠🔶🔸 Claude:"
     gh pr view --json comments --jq '[.comments[] | select(.author.login == "claude")] | last | .body'
+
+# update the Done section of PR description with current commits
+[group('Process')]
+pr_update: _on_a_pull_request
+    #!/usr/bin/env bash
+    set -euo pipefail # strict mode
+
+    CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+    # get current PR body
+    bodyfile=$(mktemp /tmp/justfile.XXXXXX)
+    gh pr view --json body --jq '.body' > "$bodyfile"
+
+    # create new Done section
+    new_done_section=$(mktemp /tmp/justfile.XXXXXX)
+    {
+        echo "## Done"
+        echo ""
+        git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | sed -e 's/^[+] [0-9a-f]* /- /'
+        echo ""
+    } > "$new_done_section"
+
+    # extract everything after Done section (preserve other sections)
+    other_sections=$(mktemp /tmp/justfile.XXXXXX)
+    awk '/^## Done/,/^## / {if (/^## / && !/^## Done/) {found=1}} found {print}' "$bodyfile" > "$other_sections"
+
+    # if no other sections found after Done, preserve everything after Done
+    if [ ! -s "$other_sections" ]; then
+        # look for content after the Done section's commit list
+        awk 'BEGIN {in_done=0; after_done=0; empty_count=0}
+            /^## Done/ {in_done=1; next}
+            in_done && !after_done && /^$/ {empty_count++; if (empty_count >= 2) after_done=1; next}
+            in_done && !after_done && /^- / {next}
+            after_done {print}' "$bodyfile" > "$other_sections"
+    fi
+
+    # combine new Done section with preserved sections
+    updated_body=$(mktemp /tmp/justfile.XXXXXX)
+    cat "$new_done_section" "$other_sections" > "$updated_body"
+
+    echo ''
+    cat "$updated_body"
+    echo ''
+
+    # update PR body
+    gh pr edit --body-file "$updated_body"
+
+    # cleanup
+    rm "$bodyfile" "$new_done_section" "$other_sections" "$updated_body"
+
+# add or append to Verify section from stdin
+[group('Process')]
+pr_verify: _on_a_pull_request
+    #!/usr/bin/env bash
+    set -euo pipefail # strict mode
+
+    # read stdin into a temp file
+    stdin_content=$(mktemp /tmp/justfile.XXXXXX)
+    cat > "$stdin_content"
+
+    # get current PR body
+    bodyfile=$(mktemp /tmp/justfile.XXXXXX)
+    gh pr view --json body --jq '.body' > "$bodyfile"
+
+    # get current datetime
+    DATETIME=$(date '+%Y-%m-%d %H:%M:%S %Z')
+
+    # check if Verify section exists
+    if grep -q '^## Verify' "$bodyfile"; then
+        # append to existing Verify section
+        updated_body=$(mktemp /tmp/justfile.XXXXXX)
+        awk -v datetime="$DATETIME" '
+            /^## Verify/ {
+                in_verify=1
+                print
+                next
+            }
+            /^## / && in_verify {
+                # found next section, insert content before it
+                print ""
+                print "### " datetime
+                print ""
+                print "```"
+                system("cat '"$stdin_content"'")
+                print "```"
+                print ""
+                in_verify=0
+            }
+            { print }
+            END {
+                # if still in verify section at end, append content
+                if (in_verify) {
+                    print ""
+                    print "### " datetime
+                    print ""
+                    print "```"
+                    system("cat '"$stdin_content"'")
+                    print "```"
+                }
+            }
+        ' "$bodyfile" > "$updated_body"
+    else
+        # create new Verify section before Meta section
+        updated_body=$(mktemp /tmp/justfile.XXXXXX)
+        awk -v datetime="$DATETIME" '
+            /^## Meta/ {
+                # insert Verify section before Meta
+                print "## Verify"
+                print ""
+                print "### " datetime
+                print ""
+                print "```"
+                system("cat '"$stdin_content"'")
+                print "```"
+                print ""
+            }
+            { print }
+        ' "$bodyfile" > "$updated_body"
+    fi
+
+    echo ''
+    cat "$updated_body"
+    echo ''
+
+    # update PR body
+    gh pr edit --body-file "$updated_body"
+
+    # cleanup
+    rm "$stdin_content" "$bodyfile" "$updated_body"
+
+# check how long ago the last release was
+[group('Process')]
+release_age:
+    #!/usr/bin/env bash
+    set -euo pipefail # strict mode
+
+    echo "{{BLUE}}Checking last release age...{{NORMAL}}"
+    echo ""
+
+    # Get the latest release tag using JSON for robustness
+    release_tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null)
+
+    if [[ -z "$release_tag" ]]; then
+        echo "{{YELLOW}}No releases found{{NORMAL}}"
+        exit 0
+    fi
+
+    # Get release date using JSON
+    release_date=$(gh release view "$release_tag" --json publishedAt -q .publishedAt 2>/dev/null | cut -d'T' -f1)
+
+    if [[ -z "$release_date" ]]; then
+        echo "{{RED}}Could not determine release date{{NORMAL}}"
+        exit 1
+    fi
+
+    # Convert release date to epoch seconds (cross-platform)
+    # Try GNU date first (Linux), then BSD date (macOS)
+    if release_epoch=$(date -d "$release_date" +%s 2>/dev/null); then
+        # GNU date (Linux)
+        current_epoch=$(date +%s)
+    elif release_epoch=$(date -j -f "%Y-%m-%d" "$release_date" +%s 2>/dev/null); then
+        # BSD date (macOS)
+        current_epoch=$(date +%s)
+    else
+        echo "{{RED}}Could not parse release date: $release_date{{NORMAL}}"
+        exit 1
+    fi
+
+    days_old=$(( (current_epoch - release_epoch) / 86400 ))
+
+    # Count commits since last release on main/master branch
+    if git rev-parse --verify main >/dev/null 2>&1; then
+        main_branch="main"
+    elif git rev-parse --verify master >/dev/null 2>&1; then
+        main_branch="master"
+    else
+        echo "{{RED}}Could not find main or master branch{{NORMAL}}"
+        exit 1
+    fi
+
+    commits_since=$(git rev-list --count "${release_tag}..${main_branch}" 2>/dev/null || echo "0")
+
+    # Display results with color coding
+    echo "Latest release: {{CYAN}}$release_tag{{NORMAL}}"
+    echo "Published: {{CYAN}}$release_date{{NORMAL}}"
+
+    if [[ $days_old -gt 60 ]]; then
+        echo "Age: {{YELLOW}}$days_old days old{{NORMAL}}"
+        echo "Commits since release: {{YELLOW}}$commits_since{{NORMAL}}"
+        echo ""
+        echo "{{YELLOW}}⚠ Release is more than 60 days old - consider creating a new release{{NORMAL}}"
+    else
+        echo "Age: {{GREEN}}$days_old days old{{NORMAL}}"
+        echo "Commits since release: {{GREEN}}$commits_since{{NORMAL}}"
+    fi
+
+# push changes, update PR description, and watch GHAs
+[group('Process')]
+again:
+    git push
+    just pr_update
+    sleep 2
+    just pr_checks
