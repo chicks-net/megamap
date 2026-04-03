@@ -13,7 +13,7 @@ sync:
     git pull
     git status --porcelain # stp
 
-# PR create v4.4
+# PR create v5.8
 [group('Process')]
 pr: _has_commits && pr_checks
     #!/usr/bin/env bash
@@ -36,10 +36,12 @@ pr: _has_commits && pr_checks
 
     bodyfile=$(mktemp /tmp/justfile.XXXXXX)
     {
+        echo "<!-- PR_BODY_DONE_START -->"
         echo "## Done"
         echo ""
         git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | sed -e 's/^[+] [0-9a-f]* /- /'
         echo ""
+        echo "<!-- PR_BODY_DONE_END -->"
         echo ""
         echo "## Meta"
         echo ""
@@ -57,9 +59,6 @@ pr: _has_commits && pr_checks
         echo "{{BLUE}}there are no workflows in this repo so there are no PR checks to watch{{NORMAL}}"
         exit 0
     fi
-
-    echo "{{BLUE}}sleeping for 8s because github is lazy with their API{{NORMAL}}"
-    sleep 8
 
 # merge PR and return to starting point
 [group('Process')]
@@ -133,6 +132,50 @@ _on_a_pull_request: _on_a_branch
         exit 103
     fi
 
+# wait for GitHub checks to start (with polling)
+[group('sanity check')]
+[no-cd]
+_wait_for_checks: _on_a_pull_request
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    MAX_WAIT=30
+    POLL_INTERVAL=2
+
+    # Polling function that can be wrapped by gum or run standalone
+    poll_for_checks() {
+        elapsed=0
+        while (( elapsed < MAX_WAIT )); do
+            # Check if any checks exist
+            checks=$(gh pr checks --json state,name 2>/dev/null || echo "[]")
+
+            if [ "$checks" != "[]" ] && [ -n "$checks" ]; then
+                echo "{{GREEN}}Checks detected after ${elapsed}s{{NORMAL}}"
+                return 0
+            fi
+
+            sleep $POLL_INTERVAL
+            elapsed=$((elapsed + POLL_INTERVAL))
+
+            # Only show dots if not using gum
+            if [ "${USING_GUM:-0}" = "0" ]; then
+                echo -n "."
+            fi
+        done
+
+        echo ""
+        echo "{{YELLOW}}No checks found after ${MAX_WAIT}s - continuing anyway{{NORMAL}}"
+        return 0
+    }
+
+    # Use gum spin if available, otherwise fall back to simple progress
+    if command -v gum &> /dev/null; then
+        USING_GUM=1 gum spin --spinner dot --title "Waiting for GitHub checks to start..." -- bash -c "MAX_WAIT=$MAX_WAIT; POLL_INTERVAL=$POLL_INTERVAL; $(declare -f poll_for_checks); poll_for_checks"
+    else
+        echo "{{BLUE}}Waiting for GitHub checks to start...{{NORMAL}}"
+        USING_GUM=0 poll_for_checks
+    fi
+
 # print UTC date in ISO format
 [group('Utility')]
 [no-cd]
@@ -142,50 +185,114 @@ _on_a_pull_request: _on_a_branch
 # make a release
 [group('Process')]
 release rel_version:
-    gh release create {{rel_version}} --generate-notes
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Check if standard release workflow is enabled
+    if [[ -e ".just/repo-toml.sh" ]]; then
+        source .just/repo-toml.sh
+    else
+        # Default to true if file doesn't exist (backward compatibility)
+        FLAG_STANDARD_RELEASE="true"
+    fi
+
+    if [[ "$FLAG_STANDARD_RELEASE" != "true" ]]; then
+        echo "{{BLUE}}Standard release workflow is disabled (see .repo.toml flags.standard-release){{NORMAL}}"
+        echo "{{YELLOW}}For this project's release workflow, check the justfile or .just/ modules{{NORMAL}}"
+        exit 0
+    fi
+
+    # Validate version format - must start with 'v' followed by a digit
+    # shellcheck disable=SC2050  # rel_version is a variable
+    if [[ ! "{{rel_version}}" =~ ^v[0-9] ]]; then
+        echo "{{RED}}Error: Release version must start with 'v' followed by a digit (e.g., v1.0.0, v2.3.4){{NORMAL}}"
+        exit 1
+    fi
+
+    # Standard release workflow
+    gh release create "{{rel_version}}" --generate-notes
     sleep 1
     git pull
 
 # watch GHAs then check for Copilot suggestions
 [group('Process')]
-pr_checks: _on_a_pull_request && claude_review
+pr_checks: && claude_review
     #!/usr/bin/env bash
 
-    gh pr checks --watch -i 5
+    # Use gh observer if installed, otherwise fall back to gh pr checks --watch
+    if gh observer --help >/dev/null 2>&1; then
+        echo ""
+        gh observer
+    else
+        just _wait_for_checks
+        gh pr checks --watch -i 5
+    fi
+    echo "" # blank line for visual space
 
-    echo "🐈‍⬛😾 Copilot suggestions..."
-    PR_META=$(gh pr view --json number,headRepository,headRepositoryOwner)
-    PR_REPO_NAME=$(echo "$PR_META" | jq -r '.headRepository.name')
-    PR_REPO_OWNER=$(echo "$PR_META" | jq -r '.headRepositoryOwner.login')
-    PR_NUMBER=$(echo "$PR_META" | jq '.number')
-    #echo "$PR_NUMBER $PR_REPO_OWNER/$PR_REPO_NAME"
-    # shellcheck disable=SC2016
-    gh api graphql \
-        -F owner="$PR_REPO_OWNER" -F name="$PR_REPO_NAME" -F pr="$PR_NUMBER" \
-        --jq '[ .data.repository.pullRequest.reviews.nodes.[] | select(.author.login=="copilot-pull-request-reviewer") | .comments.nodes.[] ]' \
-        -f query='
-        query($name: String!, $owner: String!, $pr: Int!) {
-            repository(owner: $owner, name: $name) {
-                pullRequest(number: $pr) {
-                    reviews(last: 20) {
-                        nodes {
-                            author {
-                                resourcePath
-                                login
-                            }
-                            comments(first: 100) {
-                                nodes {
-                                    body
-                                    path
-                                    originalLine
+    # Load repo metadata for conditional display
+    if [[ -e ".just/repo-toml.sh" ]]; then
+        source .just/repo-toml.sh
+    else
+        echo "{{YELLOW}}Warning: .just/repo-toml.sh not found - run 'just repo_toml_generate'{{NORMAL}}"
+        FLAG_COPILOT_REVIEW="false"
+        # shellcheck disable=SC2034  # Set both flags for defensive programming
+        FLAG_CLAUDE_REVIEW="false"
+    fi
+
+    # Only display Copilot review if flag is enabled
+    if [[ "$FLAG_COPILOT_REVIEW" == "true" ]]; then
+        PR_META=$(gh pr view --json number,headRepository,headRepositoryOwner)
+        PR_REPO_NAME=$(echo "$PR_META" | jq -r '.headRepository.name')
+        PR_REPO_OWNER=$(echo "$PR_META" | jq -r '.headRepositoryOwner.login')
+        PR_NUMBER=$(echo "$PR_META" | jq '.number')
+        #echo "$PR_NUMBER $PR_REPO_OWNER/$PR_REPO_NAME"
+
+        # Define temp file for passing count to claude_review (based on repo and PR)
+        COPILOT_COUNT_FILE="/tmp/copilot_count_${PR_REPO_OWNER}_${PR_REPO_NAME}_${PR_NUMBER}"
+
+        # Capture GraphQL output
+        # shellcheck disable=SC2016
+        COPILOT_JSON=$(gh api graphql \
+            -F owner="$PR_REPO_OWNER" -F name="$PR_REPO_NAME" -F pr="$PR_NUMBER" \
+            --jq '[ .data.repository.pullRequest.reviews.nodes.[] | select(.author.login=="copilot-pull-request-reviewer") | .comments.nodes.[] ]' \
+            -f query='
+            query($name: String!, $owner: String!, $pr: Int!) {
+                repository(owner: $owner, name: $name) {
+                    pullRequest(number: $pr) {
+                        reviews(last: 20) {
+                            nodes {
+                                author {
+                                    resourcePath
+                                    login
+                                }
+                                comments(first: 100) {
+                                    nodes {
+                                        body
+                                        path
+                                        originalLine
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-        '
+            ')
+
+        # Count and store suggestions for display after claude_review
+        COPILOT_COUNT=$(echo "$COPILOT_JSON" | jq 'length')
+        echo "$COPILOT_COUNT" > "$COPILOT_COUNT_FILE"
+
+        # Display output to maintain current behavior
+        if [[ "$COPILOT_COUNT" -eq 0 ]]; then
+            echo "🐈‍⬛ No Copilot suggestions - looks good!"
+        else
+            echo "🐈‍⬛ Total Copilot suggestions: $COPILOT_COUNT"
+            echo "$COPILOT_JSON" | jq '.'
+        fi
+    else
+        echo "{{BLUE}}Skipping Copilot review (disabled in .repo.toml){{NORMAL}}"
+    fi
 
     # chains to claude_review
 
@@ -193,10 +300,97 @@ pr_checks: _on_a_pull_request && claude_review
 [group('Process')]
 claude_review: _on_a_pull_request
     #!/usr/bin/env bash
+    set -euo pipefail
 
-    # did Claude comment?
-    echo -e "\n\n🟧🟠🔶🔸 Claude:"
-    gh pr view --json comments --jq '[.comments[] | select(.author.login == "claude")] | last | .body'
+    # Load repo metadata for conditional display
+    if [[ -e ".just/repo-toml.sh" ]]; then
+        source .just/repo-toml.sh
+    else
+        echo "{{YELLOW}}Warning: .just/repo-toml.sh not found - run 'just repo_toml_generate'{{NORMAL}}"
+        # shellcheck disable=SC2034  # Set both flags for defensive programming
+        FLAG_COPILOT_REVIEW="false"
+        FLAG_CLAUDE_REVIEW="false"
+    fi
+
+    # Only display Claude review if flag is enabled
+    if [[ "$FLAG_CLAUDE_REVIEW" != "true" ]]; then
+        echo "{{BLUE}}Skipping Claude review (disabled in .repo.toml){{NORMAL}}"
+        exit 0
+    fi
+
+    # Get latest commit info
+    LATEST_COMMIT_SHA=$(gh pr view --json commits --jq '.commits[-1].oid')
+    LATEST_COMMIT_DATE=$(gh pr view --json commits --jq '.commits[-1].committedDate')
+
+    # Get Claude's latest comment
+    CLAUDE_COMMENT_JSON=$(gh pr view --json comments --jq '[.comments[] | select(.author.login == "claude")] | last')
+
+    # Check if comment exists
+    if [[ -z "$CLAUDE_COMMENT_JSON" || "$CLAUDE_COMMENT_JSON" == "null" ]]; then
+        echo -e "\n\n{{BLUE}}ℹ️  No Claude Code review found yet{{NORMAL}}"
+        echo "   Latest commit: ${LATEST_COMMIT_SHA:0:7} ($(date -d "$LATEST_COMMIT_DATE" +'%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$LATEST_COMMIT_DATE" +'%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || echo "$LATEST_COMMIT_DATE"))"
+        echo "   The review workflow may still be running"
+        echo "   Try: {{GREEN}}just claude_review{{NORMAL}} (to check again)"
+        echo "   Or: {{GREEN}}just prweb{{NORMAL}} (to see review status in browser)"
+        exit 0
+    fi
+
+    COMMENT_DATE=$(echo "$CLAUDE_COMMENT_JSON" | jq -r '.createdAt')
+    COMMENT_BODY=$(echo "$CLAUDE_COMMENT_JSON" | jq -r '.body')
+
+    # Convert dates to epoch for comparison (cross-platform)
+    if COMMIT_EPOCH=$(date -d "$LATEST_COMMIT_DATE" +%s 2>/dev/null); then
+        # GNU date (Linux)
+        COMMENT_EPOCH=$(date -d "$COMMENT_DATE" +%s 2>/dev/null)
+    elif COMMIT_EPOCH=$(date -j -f '%Y-%m-%dT%H:%M:%SZ' "$LATEST_COMMIT_DATE" +%s 2>/dev/null); then
+        # BSD date (macOS)
+        COMMENT_EPOCH=$(date -j -f '%Y-%m-%dT%H:%M:%SZ' "$COMMENT_DATE" +%s 2>/dev/null)
+    else
+        echo "{{YELLOW}}Warning: Could not parse dates for staleness check{{NORMAL}}"
+        COMMIT_EPOCH=0
+        COMMENT_EPOCH=0
+    fi
+
+    # Check staleness
+    if [[ $COMMENT_EPOCH -lt $COMMIT_EPOCH ]]; then
+        # Comment is older than latest commit = STALE
+        TIME_DIFF=$((COMMIT_EPOCH - COMMENT_EPOCH))
+        MINUTES_OLD=$((TIME_DIFF / 60))
+
+        echo -e "\n\n{{YELLOW}}⚠️  Claude Code Review exists but is STALE{{NORMAL}}"
+        echo "   Review created: $(date -d "$COMMENT_DATE" +'%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$COMMENT_DATE" +'%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || echo "$COMMENT_DATE")"
+        echo "   Latest commit:  $(date -d "$LATEST_COMMIT_DATE" +'%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || date -j -f '%Y-%m-%dT%H:%M:%SZ' "$LATEST_COMMIT_DATE" +'%Y-%m-%d %H:%M:%S %Z' 2>/dev/null || echo "$LATEST_COMMIT_DATE")"
+        echo "   Age difference: ~$MINUTES_OLD minutes old"
+        echo "   Consider waiting for new review or checking workflow status"
+        echo ""
+        echo "🟧🟠🔶🔸 Claude's feedback (may not apply to latest code):"
+    else
+        # Comment is same age or newer than latest commit = CURRENT
+        echo -e "\n\n🟧🟠🔶🔸 Claude Code Review (current):"
+    fi
+
+    echo "$COMMENT_BODY"
+
+    # Display Copilot count summary if available
+    # Get PR metadata to construct the same temp filename
+    PR_META=$(gh pr view --json number,headRepository,headRepositoryOwner)
+    PR_REPO_NAME=$(echo "$PR_META" | jq -r '.headRepository.name')
+    PR_REPO_OWNER=$(echo "$PR_META" | jq -r '.headRepositoryOwner.login')
+    PR_NUMBER=$(echo "$PR_META" | jq '.number')
+    COPILOT_COUNT_FILE="/tmp/copilot_count_${PR_REPO_OWNER}_${PR_REPO_NAME}_${PR_NUMBER}"
+    if [[ -f "$COPILOT_COUNT_FILE" ]]; then
+        COPILOT_COUNT=$(cat "$COPILOT_COUNT_FILE")
+        echo ""
+        if [[ "$COPILOT_COUNT" -eq 0 ]]; then
+            echo "🐈‍⬛ No Copilot suggestions - looks good!"
+        else
+            echo "🐈‍⬛ Total Copilot suggestions: $COPILOT_COUNT"
+        fi
+        rm -f "$COPILOT_COUNT_FILE"
+    fi
+
+    # Always exit 0 - this is informational, not an error
+    exit 0
 
 # update the Done section of PR description with current commits
 [group('Process')]
@@ -206,46 +400,28 @@ pr_update: _on_a_pull_request
 
     CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
-    # get current PR body
+    # Get current PR body
     bodyfile=$(mktemp /tmp/justfile.XXXXXX)
     gh pr view --json body --jq '.body' > "$bodyfile"
 
-    # create new Done section
-    new_done_section=$(mktemp /tmp/justfile.XXXXXX)
-    {
-        echo "## Done"
-        echo ""
-        git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | sed -e 's/^[+] [0-9a-f]* /- /'
-        echo ""
-    } > "$new_done_section"
+    # Create new commit list
+    new_commits=$(mktemp /tmp/justfile.XXXXXX)
+    git cherry -v "{{ release_branch }}" "$CURRENT_BRANCH" | \
+        sed -e 's/^[+] [0-9a-f]* /- /' > "$new_commits"
 
-    # extract everything after Done section (preserve other sections)
-    other_sections=$(mktemp /tmp/justfile.XXXXXX)
-    awk '/^## Done/,/^## / {if (/^## / && !/^## Done/) {found=1}} found {print}' "$bodyfile" > "$other_sections"
-
-    # if no other sections found after Done, preserve everything after Done
-    if [ ! -s "$other_sections" ]; then
-        # look for content after the Done section's commit list
-        awk 'BEGIN {in_done=0; after_done=0; empty_count=0}
-            /^## Done/ {in_done=1; next}
-            in_done && !after_done && /^$/ {empty_count++; if (empty_count >= 2) after_done=1; next}
-            in_done && !after_done && /^- / {next}
-            after_done {print}' "$bodyfile" > "$other_sections"
-    fi
-
-    # combine new Done section with preserved sections
+    # Use library script for robust update
     updated_body=$(mktemp /tmp/justfile.XXXXXX)
-    cat "$new_done_section" "$other_sections" > "$updated_body"
+    .just/lib/update_pr_body.sh "$bodyfile" "$new_commits" > "$updated_body"
 
     echo ''
     cat "$updated_body"
     echo ''
 
-    # update PR body
+    # Update PR body
     gh pr edit --body-file "$updated_body"
 
-    # cleanup
-    rm "$bodyfile" "$new_done_section" "$other_sections" "$updated_body"
+    # Cleanup
+    rm "$bodyfile" "$new_commits" "$updated_body"
 
 # add or append to Verify section from stdin
 [group('Process')]
@@ -333,6 +509,20 @@ release_age:
     #!/usr/bin/env bash
     set -euo pipefail # strict mode
 
+    # Check if standard release workflow is enabled
+    if [[ -e ".just/repo-toml.sh" ]]; then
+        source .just/repo-toml.sh
+    else
+        # Default to true if file doesn't exist (backward compatibility)
+        FLAG_STANDARD_RELEASE="true"
+    fi
+
+    if [[ "$FLAG_STANDARD_RELEASE" != "true" ]]; then
+        echo "{{BLUE}}Standard release workflow is disabled (see .repo.toml flags.standard-release){{NORMAL}}"
+        echo "{{YELLOW}}For this project's release workflow, check the justfile or .just/ modules{{NORMAL}}"
+        exit 0
+    fi
+
     echo "{{BLUE}}Checking last release age...{{NORMAL}}"
     echo ""
 
@@ -398,5 +588,4 @@ release_age:
 again:
     git push
     just pr_update
-    sleep 2
     just pr_checks

@@ -1,0 +1,15 @@
+# .repo.toml
+
+[about]
+description = "MegaRAID® Linux drive map"
+topics = ["drive-mappings", "linux", "megaraid-drive", "perl", "wwn"]
+
+[urls]
+git_ssh = "git@github.com:chicks-net/megamap.git"
+web_url = "https://github.com/chicks-net/megamap"
+
+[flags]
+claude = true
+claude-review = true
+copilot-review = true
+standard-release = true

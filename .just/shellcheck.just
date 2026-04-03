@@ -1,7 +1,7 @@
 # shellcheck linting for just recipes
 
 # run shellcheck on all bash scripts in just recipes
-[group('Compliance')]
+[group('Testing/Compliance')]
 shellcheck:
     #!/usr/bin/env bash
     set -euo pipefail # strict mode
