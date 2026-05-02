@@ -1,3 +1,4 @@
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/chicks-net/megamap/badge)](https://scorecard.dev/viewer/?uri=github.com/chicks-net/megamap)
 ![logo](art/megamap-final-logo-100.png)
 
 # megamap
