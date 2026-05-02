@@ -1,7 +1,11 @@
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/chicks-net/megamap/badge)](https://scorecard.dev/viewer/?uri=github.com/chicks-net/megamap)
 ![logo](art/megamap-final-logo-100.png)
 
 # megamap
+
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/chicks-net/megamap/badge)](https://scorecard.dev/viewer/?uri=github.com/chicks-net/megamap)
+[![made-with-perl](https://img.shields.io/badge/Made%20with-Perl-1f425f.svg)](https://www.perl.org/)
+![GitHub License](https://img.shields.io/github/license/chicks-net/megamap)
+![GitHub repo size](https://img.shields.io/github/repo-size/chicks-net/megamap)
 
 MegaRAID&trade; Linux drive mapper
 
