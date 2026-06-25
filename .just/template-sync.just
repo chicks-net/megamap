@@ -66,6 +66,9 @@ checksums_verify:
             sha256sum "$file" | awk '{print $1}'
         elif command -v shasum &>/dev/null; then
             shasum -a 256 "$file" | awk '{print $1}'
+        else
+            echo "Error: Neither sha256sum nor shasum found" >&2
+            exit 1
         fi
     }
 
@@ -88,8 +91,8 @@ checksums_verify:
 
     while IFS= read -r filepath; do
         if [[ ! -f "$filepath" ]]; then
-            # Check if this is a cleaned file
-            if jq -e --arg fp "$filepath" '.cleaned_files // [] | index($fp) != null' "$MANIFEST_FILE" >/dev/null 2>&1; then
+            # Check if this is a cleaned file (or under a cleaned directory)
+            if jq -e --arg fp "$filepath" '.cleaned_files // [] | any($fp | startswith(.))' "$MANIFEST_FILE" >/dev/null 2>&1; then
                 echo "  {{BLUE}}⊘{{NORMAL}} $filepath - removed by clean_template"
             else
                 echo "  {{YELLOW}}⊘{{NORMAL}} $filepath - not present locally"

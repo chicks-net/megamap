@@ -116,6 +116,11 @@ if [[ "$state" == "$BEFORE_DONE" && ${#header_content[@]} -gt 0 ]]; then
     fi
 fi
 
+# Trim trailing blank lines from footer (GitHub API + jq round-trip accumulation; issue #173)
+while [[ ${#footer_content[@]} -gt 0 && -z "${footer_content[${#footer_content[@]}-1]}" ]]; do
+    unset 'footer_content[${#footer_content[@]}-1]'
+done
+
 # Output the updated PR body
 # 1. Header content (everything before Done)
 if [[ ${#header_content[@]} -gt 0 ]]; then
