@@ -29,7 +29,7 @@ CLEANED_FILES=(
 declare -a just_files
 while IFS= read -r file; do
 	just_files+=("$file")
-done < <(git ls-files '.just/*.just' | sort)
+done < <(git ls-files '.just/*.just' ':(exclude).just/test/**' | sort)
 
 # Get list of all .just/lib/*.sh files
 declare -a lib_files

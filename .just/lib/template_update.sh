@@ -73,10 +73,16 @@ fetch_manifest() {
 # Download a file with verification
 download_file() {
 	local filepath="$1"
+	local expected_checksum="${2:-}"
 	local temp_file="${filepath}.tmp"
 	local backup_file="${filepath}.pre-update-backup"
 	local -r max=$MAX_RETRIES
 	local attempt=1
+	local err_file="${temp_file}.err"
+
+	# Ensure the target directory exists (defense in depth: derived repos
+	# may receive files under paths whose parent dirs don't exist yet)
+	mkdir -p "$(dirname "$filepath")" || return 1
 
 	# Backup existing file
 	if [[ -f "$filepath" ]]; then
@@ -84,18 +90,30 @@ download_file() {
 	fi
 
 	while [[ $attempt -le $max ]]; do
-		if curl -sSL -f "$TEMPLATE_URL/$filepath" -o "$temp_file" 2>/dev/null; then
+		if curl -sSL -f "$TEMPLATE_URL/$filepath" -o "$temp_file" 2>"$err_file"; then
 			# Verify it's not empty
 			if [[ ! -s "$temp_file" ]]; then
 				echo -e "      ${RED}Downloaded file is empty${NORMAL}"
-				rm -f "$temp_file"
+				rm -f "$temp_file" "$err_file"
 				[[ -f "$backup_file" ]] && mv "$backup_file" "$filepath"
 				return 1
 			fi
 
+			# Verify checksum if expected checksum provided
+			if [[ -n "$expected_checksum" ]]; then
+				local downloaded_checksum
+				downloaded_checksum=$(compute_checksum "$temp_file")
+				if [[ "$downloaded_checksum" != "$expected_checksum" ]]; then
+					echo -e "      ${RED}Checksum mismatch${NORMAL}"
+					rm -f "$temp_file" "$err_file"
+					[[ -f "$backup_file" ]] && mv "$backup_file" "$filepath"
+					return 1
+				fi
+			fi
+
 			# Move into place and clean up
 			mv "$temp_file" "$filepath"
-			rm -f "$backup_file"
+			rm -f "$backup_file" "$err_file"
 
 			# Make executable (except common.sh which is only sourced)
 			if [[ "$(basename "$filepath")" != "common.sh" ]]; then
@@ -110,7 +128,10 @@ download_file() {
 			((attempt++))
 		else
 			echo -e "      ${RED}Download failed after $max attempts${NORMAL}"
-			rm -f "$temp_file"
+			if [[ -s "$err_file" ]]; then
+				echo -e "      ${RED}curl error: $(<"$err_file")${NORMAL}"
+			fi
+			rm -f "$temp_file" "$err_file"
 			[[ -f "$backup_file" ]] && mv "$backup_file" "$filepath"
 			return 1
 		fi
@@ -121,9 +142,9 @@ download_file() {
 process_file() {
 	local filepath="$1"
 
-	# Check if this is a cleaned file (should be skipped if missing)
+	# Check if this is a cleaned file (or under a cleaned directory)
 	local is_cleaned=false
-	if jq -e --arg fp "$filepath" '.cleaned_files // [] | index($fp) != null' "$MANIFEST_FILE" >/dev/null 2>&1; then
+	if jq -e --arg fp "$filepath" '.cleaned_files // [] | any(. as $p | $fp | startswith($p + "/") or $fp == $p)' "$MANIFEST_FILE" >/dev/null 2>&1; then
 		is_cleaned=true
 	fi
 
@@ -150,7 +171,7 @@ process_file() {
 			return
 		fi
 		echo -e "  ${BLUE}↓${NORMAL} $filepath - new file, downloading"
-		if download_file "$filepath"; then
+		if download_file "$filepath" "$latest_checksum"; then
 			echo -e "      ${GREEN}Downloaded successfully${NORMAL}"
 			((downloaded_new_count++)) || true
 		else
@@ -195,7 +216,7 @@ process_file() {
 	fi
 
 	echo -e "  ${BLUE}⬆${NORMAL} $filepath - updating${version_info}"
-	if download_file "$filepath"; then
+	if download_file "$filepath" "$latest_checksum"; then
 		echo -e "      ${GREEN}Updated successfully${NORMAL}"
 		((updated_count++)) || true
 	else

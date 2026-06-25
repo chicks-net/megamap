@@ -191,27 +191,70 @@ cue-sync-from-github:
         # Update .repo.toml using awk (portable across macOS and Linux)
         GH_DESC_ESCAPED="${GH_DESC//\"/\\\"}"
 
-        # Use state-aware awk that only matches within [about] section
+        # State-aware awk that handles three cases for each key:
+        #   1. Active line (e.g. `topics = [...]`)        -> replace in place
+        #   2. Commented line (e.g. `# topics = [...]`)   -> replace in place
+        #   3. Missing line                               -> insert inside [about] block
+        # The `[#[:space:]]*` prefix tolerates a leading `#` and optional space so
+        # commented-out keys are still matched and rewritten. Missing keys are
+        # inserted at the end of the `[about]` block, *before* any trailing blank
+        # line that separates it from the next section. This is achieved by
+        # buffering blank lines while inside `[about]` and flushing them only
+        # after any pending missing-key insertions, so the inserted key lands
+        # adjacent to the preceding key (e.g. `license`) rather than after the
+        # blank line (which would visually attach it to the next `[section]`).
+        # Missing keys are flushed either when the next `[section]` begins or at
+        # EOF (END block), preserving the original field order of any other keys
+        # in [about]. See issue #165 for the failure modes this addresses.
         awk -v desc="$GH_DESC_ESCAPED" -v topics="[$TOPICS_TOML]" '
-            /^\[about\]/ { in_about=1 }
-            /^\[/ && !/^\[about\]/ { in_about=0 }
-            in_about && /^description = / { print "description = \"" desc "\""; next }
-            in_about && /^topics = / { print "topics = " topics; next }
-            { print }
+            function flush_blanks() { if (blanks != "") { printf "%s", blanks; blanks="" } }
+            /^\[about\]/ { in_about=1; flush_blanks(); print; next }
+            /^\[/ && !/^\[about\]/ {
+                if (in_about) {
+                    if (!desc_written)   { print "description = \"" desc "\""; desc_written=1 }
+                    if (!topics_written) { print "topics = " topics; topics_written=1 }
+                }
+                in_about=0
+                flush_blanks()
+                print
+                next
+            }
+            in_about && /^[#[:space:]]*description[[:space:]]*=/ { flush_blanks(); print "description = \"" desc "\""; desc_written=1; next }
+            in_about && /^[#[:space:]]*topics[[:space:]]*=/      { flush_blanks(); print "topics = " topics; topics_written=1; next }
+            in_about && /^[[:space:]]*$/ { blanks=blanks "\n"; next }
+            { flush_blanks(); print }
+            END {
+                if (in_about) {
+                    if (!desc_written)   { print "description = \"" desc "\""; desc_written=1 }
+                    if (!topics_written) { print "topics = " topics; topics_written=1 }
+                }
+                flush_blanks()
+            }
         ' .repo.toml > .repo.toml.tmp && mv .repo.toml.tmp .repo.toml
 
-        # Validate the TOML is still valid after modification
+        # Validate the TOML is still valid after modification.
+        # NOTE: cue vet passing does NOT prove the sync wrote the right values
+        # (topics is optional in the CUE schema), so the backup is preserved
+        # until the trailing `just cue-verify` also passes. See issue #165.
         echo "{{BLUE}}Validating modified TOML...{{NORMAL}}"
-        if cue vet .repo.toml docs/repo-toml.cue; then
-            # Validation passed - safe to remove backup
-            rm .repo.toml.backup
-            echo "{{GREEN}}Successfully synced from GitHub to .repo.toml{{NORMAL}}"
-        else
-            # Validation failed - restore from backup
+        if ! cue vet .repo.toml docs/repo-toml.cue; then
             mv .repo.toml.backup .repo.toml
             echo "{{RED}}Sync failed - TOML validation error. Restored from backup.{{NORMAL}}"
             exit 1
         fi
+
+        # Run full verification (this catches silent topics/description write
+        # failures that cue vet cannot, by comparing against the GitHub API).
+        echo ""
+        echo "{{BLUE}}Running full verification...{{NORMAL}}"
+        if ! just cue-verify; then
+            mv .repo.toml.backup .repo.toml
+            echo "{{RED}}Sync failed - verification mismatch. Restored from backup.{{NORMAL}}"
+            exit 1
+        fi
+
+        rm .repo.toml.backup
+        echo "{{GREEN}}Successfully synced from GitHub to .repo.toml{{NORMAL}}"
     else
         echo "{{YELLOW}}.repo.toml not found - creating from GitHub metadata{{NORMAL}}"
 
@@ -238,16 +281,20 @@ cue-sync-from-github:
 
         # Validate the new TOML
         echo "{{BLUE}}Validating new TOML...{{NORMAL}}"
-        if cue vet .repo.toml docs/repo-toml.cue; then
-            echo "{{GREEN}}Created .repo.toml from GitHub metadata{{NORMAL}}"
-        else
+        if ! cue vet .repo.toml docs/repo-toml.cue; then
             rm .repo.toml
             echo "{{RED}}Failed to create valid .repo.toml{{NORMAL}}"
             exit 1
         fi
-    fi
 
-    # Run full verification to confirm sync worked
-    echo ""
-    echo "{{BLUE}}Running full verification...{{NORMAL}}"
-    just cue-verify
+        # Mirror existing-file branch: clean up on failure (no backup to restore).
+        echo ""
+        echo "{{BLUE}}Running full verification...{{NORMAL}}"
+        if ! just cue-verify; then
+            rm .repo.toml
+            echo "{{RED}}Newly created .repo.toml failed verification - file removed.{{NORMAL}}"
+            exit 1
+        fi
+
+        echo "{{GREEN}}Successfully synced from GitHub to .repo.toml{{NORMAL}}"
+    fi
