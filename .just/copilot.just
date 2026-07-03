@@ -508,11 +508,11 @@ copilot_rollback:
     for backup in "$BACKUP_DIR"/*.bak; do
         if [[ -f "$backup" ]]; then
             filename=$(basename "$backup")
-            timestamp=${filename##*_}
+            safe_path=${filename%%_*}
+            timestamp=${filename#*_}
             timestamp=${timestamp%.bak}
             # URL-decode the safe path back to original file path
             # (reversible unlike the old _ for / approach)
-            safe_path=${filename%_*}
             if echo "$safe_path" | grep -qE '%2F|%5F|%25'; then
                 target_file=$(echo "$safe_path" | sed 's|%5F|_|g; s|%2F|/|g; s|%25|%|g')
             else

@@ -20,9 +20,12 @@ CLEANED_FILES=(
 	".just/clean-template.just"
 	".just/lib/pr_body_test.sh"
 	".just/lib/template_sync_test.sh"
+	".just/lib/cue_sync_test.sh"
 	".just/test"
 	".github/workflows/pr-body-tests.yml"
 	".github/workflows/checksums-verify.yml"
+	".github/workflows/cue-sync-tests.yml"
+	".github/workflows/template-sync.yml"
 )
 
 # Get list of all .just/*.just files
@@ -31,11 +34,13 @@ while IFS= read -r file; do
 	just_files+=("$file")
 done < <(git ls-files '.just/*.just' ':(exclude).just/test/**' | sort)
 
-# Get list of all .just/lib/*.sh files
+# Get list of all .just/lib/*.sh and .just/lib/*.awk files
+# (.awk files are included so shared awk programs like cue_sync.awk are
+# CHECKSUMS-tracked and flow through just update_from_template. See #196.)
 declare -a lib_files
 while IFS= read -r file; do
 	lib_files+=("$file")
-done < <(git ls-files '.just/lib/*.sh' | sort)
+done < <(git ls-files '.just/lib/*.sh' '.just/lib/*.awk' | sort)
 
 # Combine all tracked files
 all_files=("${just_files[@]}" "${lib_files[@]}")

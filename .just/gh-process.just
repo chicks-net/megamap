@@ -13,7 +13,7 @@ sync:
     git pull
     git status --porcelain # stp
 
-# PR create v7.0
+# PR create v8.2
 [group('Process')]
 pr: _has_commits && pr_checks
     #!/usr/bin/env bash
@@ -54,11 +54,6 @@ pr: _has_commits && pr_checks
 
     gh pr create --title "$FIRST_COMMIT_MESSAGE" --body-file "$bodyfile"
     rm "$bodyfile"
-
-    if [[ ! -e ".github/workflows" ]]; then
-        echo "{{BLUE}}there are no workflows in this repo so there are no PR checks to watch{{NORMAL}}"
-        exit 0
-    fi
 
 # merge PR and return to starting point
 [group('Process')]
@@ -219,15 +214,20 @@ release rel_version:
 pr_checks: _on_a_pull_request && claude_review
     #!/usr/bin/env bash
 
-    # Use gh observer if installed, otherwise fall back to gh pr checks --watch
-    if gh observer --help >/dev/null 2>&1; then
-        echo ""
-        gh observer
+    # Skip workflow watcher when repo has no GitHub Actions workflows
+    if [[ -d ".github/workflows" ]]; then
+        # Use gh observer if installed, otherwise fall back to gh pr checks --watch
+        if gh observer --help >/dev/null 2>&1; then
+            echo ""
+            gh observer
+        else
+            just _wait_for_checks
+            gh pr checks --watch -i 5
+        fi
+        echo "" # blank line for visual space
     else
-        just _wait_for_checks
-        gh pr checks --watch -i 5
+        echo "{{BLUE}}no workflows in this repo - skipping workflow watcher{{NORMAL}}"
     fi
-    echo "" # blank line for visual space
 
     # Load repo metadata for conditional display
     if [[ -e ".just/repo-toml.sh" ]]; then
