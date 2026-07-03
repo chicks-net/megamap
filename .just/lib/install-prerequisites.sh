@@ -72,7 +72,7 @@ else
 	MISSING+=("cue")
 fi
 
-if gh extension list 2>/dev/null | grep -q 'gh-observer'; then
+if command -v gh &>/dev/null && gh extension list 2>/dev/null | grep -q 'gh-observer'; then
 	INSTALLED+=("gh-observer")
 else
 	MISSING+=("gh-observer")
@@ -146,15 +146,17 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 			;;
 		markdownlint-cli2)
 			echo -e "${CYAN}Installing markdownlint-cli2...${NC}"
-			if ! command -v npm &>/dev/null; then
-				echo -e "${RED}npm is not installed! Install Node.js first.${NC}"
-				echo "Install Node.js: brew install node"
-				INSTALL_FAILED+=("markdownlint-cli2")
-			elif npm install -g markdownlint-cli2; then
-				INSTALL_SUCCESS+=("markdownlint-cli2")
+			if command -v brew &>/dev/null; then
+				if brew install markdownlint-cli2; then
+					INSTALL_SUCCESS+=("markdownlint-cli2")
+				else
+					INSTALL_FAILED+=("markdownlint-cli2")
+					echo -e "${RED}Failed to install markdownlint-cli2${NC}"
+				fi
 			else
+				echo -e "${RED}Homebrew is not installed! Install Homebrew first.${NC}"
+				echo "Install Homebrew: https://brew.sh"
 				INSTALL_FAILED+=("markdownlint-cli2")
-				echo -e "${RED}Failed to install markdownlint-cli2${NC}"
 			fi
 			;;
 		jq)
@@ -269,8 +271,12 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
 			fi
 			;;
 		markdownlint-cli2)
-			echo -e "${CYAN}Install markdownlint-cli2:${NC} npm install -g markdownlint-cli2"
-			echo -e "${YELLOW}(Requires Node.js/npm)${NC}"
+			if command -v brew &>/dev/null; then
+				echo -e "${CYAN}Install markdownlint-cli2:${NC} brew install markdownlint-cli2"
+			else
+				echo -e "${CYAN}Install markdownlint-cli2:${NC} npm install -g markdownlint-cli2"
+				echo -e "${YELLOW}(Requires Node.js/npm; brew preferred when available)${NC}"
+			fi
 			;;
 		jq)
 			if [[ "$PKG_MGR" == "apt-get" ]]; then
@@ -309,7 +315,7 @@ else
 	echo "  just: https://github.com/casey/just#installation"
 	echo "  gh: https://cli.github.com/manual/installation"
 	echo "  shellcheck: https://github.com/koalaman/shellcheck#installing"
-	echo "  markdownlint-cli2: npm install -g markdownlint-cli2"
+	echo "  markdownlint-cli2: brew install markdownlint-cli2"
 	echo "  jq: https://stedolan.github.io/jq/download/"
 	echo "  gum: https://github.com/charmbracelet/gum#installation"
 	echo "  cue: https://github.com/cue-lang/cue#installation"

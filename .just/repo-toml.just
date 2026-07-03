@@ -38,15 +38,20 @@ repo_toml_generate:
 
     # Derive org and repo name from web URL
     # Example: https://github.com/fini-net/template-repo -> fini-net, template-repo
-    # Extract raw URL separately from @sh-quoted version to avoid fragile sed stripping
+    # Extract raw URL separately from @sh-quoted version to avoid @sh quoting
     WEB_URL_RAW=$(echo "$JSON" | jq -r '.urls.web_url // ""')
-    ORG_NAME=$(echo "$WEB_URL_RAW" | sed -E 's|https://github.com/([^/]+)/.*|\1|')
-    REPO_NAME=$(echo "$WEB_URL_RAW" | sed -E 's|https://github.com/[^/]+/(.+)|\1|')
 
-    # Validate URL parsing succeeded
-    if [[ -z "$ORG_NAME" ]] || [[ -z "$REPO_NAME" ]]; then
-        echo "{{RED}}Error: Failed to parse organization and repository name from web_url{{NORMAL}}"
-        echo "{{YELLOW}}Expected format: https://github.com/org-name/repo-name{{NORMAL}}"
+    # Strict match: exactly https://github.com/<org>/<repo>, nothing after.
+    # sed-based extraction passed input through unchanged on no-match, so
+    # malformed web_url values silently produced garbage ORG_NAME/REPO_NAME
+    # and slipped past the -z guard. A bash regex match fails explicitly
+    # instead. Mirrors the cue schema at docs/repo-toml.cue.
+    if [[ "$WEB_URL_RAW" =~ ^https://github\.com/([^/]+)/([^/]+)$ ]]; then
+        ORG_NAME="${BASH_REMATCH[1]}"
+        REPO_NAME="${BASH_REMATCH[2]}"
+    else
+        echo "{{RED}}Error: web_url does not match expected format{{NORMAL}}"
+        echo "{{YELLOW}}Expected: https://github.com/org-name/repo-name{{NORMAL}}"
         echo "{{YELLOW}}Got: $WEB_URL_RAW{{NORMAL}}"
         exit 1
     fi

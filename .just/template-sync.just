@@ -92,7 +92,7 @@ checksums_verify:
     while IFS= read -r filepath; do
         if [[ ! -f "$filepath" ]]; then
             # Check if this is a cleaned file (or under a cleaned directory)
-            if jq -e --arg fp "$filepath" '.cleaned_files // [] | any($fp | startswith(.))' "$MANIFEST_FILE" >/dev/null 2>&1; then
+            if jq -e --arg fp "$filepath" '.cleaned_files // [] | any(. as $p | $fp | startswith($p + "/") or $fp == $p)' "$MANIFEST_FILE" >/dev/null 2>&1; then
                 echo "  {{BLUE}}⊘{{NORMAL}} $filepath - removed by clean_template"
             else
                 echo "  {{YELLOW}}⊘{{NORMAL}} $filepath - not present locally"
