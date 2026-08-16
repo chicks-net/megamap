@@ -10,7 +10,7 @@ on:
 permissions: {}
 
 jobs:
-  run:
+  run-auto-assign:
     runs-on: ubuntu-latest
     permissions:
       issues: write
