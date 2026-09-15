@@ -1,9 +1,9 @@
 # cue_sync.awk - state-aware [about] block updater for cue-sync-from-github
 #
-# Invoked by the cue-sync-from-github recipe in .just/cue-verify.just and by
-# the test runner .just/lib/cue_sync_test.sh. Keeping the program in a single
-# file guarantees both callers run identical awk logic; a change here is
-# automatically exercised by both paths. See issue #196.
+# Invoked by the cue-sync-from-github recipe in .just/cue-verify.just. In
+# template-repo itself it is also exercised by the test runner
+# .just/lib/cue_sync_test.sh, which clean_template removes from derived
+# repos. See issue #196.
 #
 # Inputs:
 #   ENVIRON["desc"]   - raw description string (no -v escape processing)

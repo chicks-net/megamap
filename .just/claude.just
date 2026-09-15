@@ -2,10 +2,16 @@
 
 claude_settings_file := ".claude/settings.local.json"
 
+# [positional-arguments] makes this recipe self-contained - derived
+# repos ship .just/*.just modules but not the root justfile's
+# `set positional-arguments := true`, so the per-recipe attribute is
+# what guarantees `"$@"` is populated there (#367)
 # Launch Claude Code in the repo root (with arguments optionally)
 [group('Claude Code')]
+[positional-arguments]
 claude *args:
-    claude {{ args }}
+    #!/usr/bin/env bash
+    claude "$@"
 
 # Sort Claude Code permissions in canonical order
 [group('Claude Code')]

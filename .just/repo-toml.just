@@ -61,6 +61,7 @@ repo_toml_generate:
     FLAG_CLAUDE_REVIEW=$(echo "$JSON" | jq -r 'if .flags["claude-review"] == true then "true" else "false" end')
     FLAG_COPILOT_REVIEW=$(echo "$JSON" | jq -r 'if .flags["copilot-review"] == true then "true" else "false" end')
     FLAG_STANDARD_RELEASE=$(echo "$JSON" | jq -r 'if .flags["standard-release"] == false then "false" else "true" end')
+    FLAG_ASCIINEMA_RECORD=$(echo "$JSON" | jq -r 'if .flags["asciinema-record"] == true then "true" else "false" end')
 
     # Generate .just/repo-toml.sh with all content
     # @sh-quoted string values already include proper shell quoting (e.g., 'value')
@@ -92,6 +93,7 @@ repo_toml_generate:
         echo "FLAG_CLAUDE_REVIEW=${FLAG_CLAUDE_REVIEW}"
         echo "FLAG_COPILOT_REVIEW=${FLAG_COPILOT_REVIEW}"
         echo "FLAG_STANDARD_RELEASE=${FLAG_STANDARD_RELEASE}"
+        echo "FLAG_ASCIINEMA_RECORD=${FLAG_ASCIINEMA_RECORD}"
         echo ""
         echo "# Topics as array (for iteration)"
         echo "REPO_TOPICS_ARRAY=("
@@ -105,7 +107,7 @@ repo_toml_generate:
 
     echo "{{GREEN}}Generated .just/repo-toml.sh{{NORMAL}}"
     echo "{{BLUE}}Org: $ORG_NAME, Repo: $REPO_NAME{{NORMAL}}"
-    echo "{{BLUE}}Flags - Claude: $FLAG_CLAUDE, Claude Review: $FLAG_CLAUDE_REVIEW, Copilot Review: $FLAG_COPILOT_REVIEW, Standard Release: $FLAG_STANDARD_RELEASE{{NORMAL}}"
+    echo "{{BLUE}}Flags - Claude: $FLAG_CLAUDE, Claude Review: $FLAG_CLAUDE_REVIEW, Copilot Review: $FLAG_COPILOT_REVIEW, Standard Release: $FLAG_STANDARD_RELEASE, Asciinema Record: $FLAG_ASCIINEMA_RECORD{{NORMAL}}"
 
 # check if generated shell file is up-to-date
 [group('Testing/Automation')]
