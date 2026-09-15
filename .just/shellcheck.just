@@ -16,9 +16,31 @@ shellcheck:
     if [[ ! -f .just/repo-toml.sh ]]; then
         echo "{{YELLOW}}.just/repo-toml.sh not found - generating via 'just repo_toml_generate'{{NORMAL}}"
         if ! just repo_toml_generate >/dev/null 2>&1; then
-            echo "{{RED}}Error: could not generate .just/repo-toml.sh{{NORMAL}}"
-            echo "{{BLUE}}Run 'just repo_toml_generate' manually (requires cue and jq){{NORMAL}}"
-            exit 1
+            # Best-effort: shellcheck can still run without cue/jq, so write a
+            # stub with the expected variable declarations (an empty file would
+            # leave FLAG_*/REPO_* unset and break recipes that source it under
+            # set -u) and continue with a warning instead of failing the lint.
+            # SC1091 goes away either way; generation failure stays visible in
+            # the warning below.
+            echo "{{YELLOW}}Warning: could not generate .just/repo-toml.sh (requires cue and jq){{NORMAL}}"
+            echo "{{YELLOW}}Writing a stub with default flags so shellcheck can still run{{NORMAL}}"
+            {
+                echo "# Stub written by 'just shellcheck' - generation failed"
+                echo "# Regenerate with: just repo_toml_generate"
+                echo "REPO_DESCRIPTION=''"
+                echo "REPO_LICENSE=''"
+                echo "REPO_TOPICS=''"
+                echo "REPO_GIT_SSH=''"
+                echo "REPO_WEB_URL=''"
+                echo "REPO_ORG_NAME=''"
+                echo "REPO_REPO_NAME=''"
+                echo "FLAG_CLAUDE=false"
+                echo "FLAG_CLAUDE_REVIEW=false"
+                echo "FLAG_COPILOT_REVIEW=false"
+                echo "FLAG_STANDARD_RELEASE=true"
+                echo "FLAG_ASCIINEMA_RECORD=false"
+                echo "REPO_TOPICS_ARRAY=()"
+            } > .just/repo-toml.sh
         fi
     fi
 

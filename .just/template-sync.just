@@ -57,20 +57,10 @@ checksums_verify:
     set -euo pipefail
 
     TEMPLATE_URL="https://raw.githubusercontent.com/fini-net/template-repo/main"
-    MANIFEST_FILE="/tmp/checksums-verify-$$.json"
+    MANIFEST_FILE=$(mktemp)
 
-    # Platform-compatible checksum
-    compute_checksum() {
-        local file="$1"
-        if command -v sha256sum &>/dev/null; then
-            sha256sum "$file" | awk '{print $1}'
-        elif command -v shasum &>/dev/null; then
-            shasum -a 256 "$file" | awk '{print $1}'
-        else
-            echo "Error: Neither sha256sum nor shasum found" >&2
-            exit 1
-        fi
-    }
+    # shellcheck source=.just/lib/common.sh
+    source .just/lib/common.sh
 
     # shellcheck disable=SC2329  # cleanup is invoked via trap
     cleanup() {
@@ -85,14 +75,24 @@ checksums_verify:
     fi
 
     echo
-    echo "Checking local files (.just/*.just and .just/lib/*.sh):"
+    echo "Checking local files (.just/*.just and .just/lib/*.sh, .just/lib/*.awk):"
 
     all_match=true
 
-    while IFS= read -r filepath; do
+    # NUL-delimited so keys with embedded newlines stay intact for
+    # validate_filepath to reject
+    while IFS= read -r -d '' filepath; do
+        # Skip unsafe manifest paths before any filesystem use (#347)
+        if ! validate_filepath "$filepath"; then
+            safe_filepath=$(sanitize_for_display "$filepath")
+            echo "  {{RED}}✗{{NORMAL}} $safe_filepath - invalid path in manifest, skipping"
+            all_match=false
+            continue
+        fi
+
         if [[ ! -f "$filepath" ]]; then
             # Check if this is a cleaned file (or under a cleaned directory)
-            if jq -e --arg fp "$filepath" '.cleaned_files // [] | any(. as $p | $fp | startswith($p + "/") or $fp == $p)' "$MANIFEST_FILE" >/dev/null 2>&1; then
+            if jq -e --arg fp "$filepath" '.cleaned_files // [] | any(. as $p | ($fp | startswith($p + "/")) or ($fp == $p))' "$MANIFEST_FILE" >/dev/null 2>&1; then
                 echo "  {{BLUE}}⊘{{NORMAL}} $filepath - removed by clean_template"
             else
                 echo "  {{YELLOW}}⊘{{NORMAL}} $filepath - not present locally"
@@ -102,7 +102,7 @@ checksums_verify:
         fi
 
         local_sum=$(compute_checksum "$filepath")
-        versions_json=$(jq -r ".files[\"$filepath\"].versions // []" "$MANIFEST_FILE")
+        versions_json=$(jq -r --arg fp "$filepath" '.files[$fp].versions // []' "$MANIFEST_FILE")
 
         # Check if matches any known version
         match_found=false
@@ -128,7 +128,7 @@ checksums_verify:
             echo "  {{BLUE}}⬆{{NORMAL}} $filepath - update available${matched_version:+ (current: $matched_version)}"
             all_match=false
         fi
-    done < <(jq -r '.files | keys[]' "$MANIFEST_FILE")
+    done < <(jq -j '.files | keys[] | . + "\u0000"' "$MANIFEST_FILE")
 
     echo
     if [[ "$all_match" == true ]]; then
@@ -140,39 +140,64 @@ checksums_verify:
         exit 1
     fi
 
+# [positional-arguments] keeps this recipe self-contained in derived
+# repos, whose root justfile lacks `set positional-arguments` (#367)
 # Show diff between local and latest template version
 [group('Template Maintenance')]
+[positional-arguments]
 checksums_diff filepath:
     #!/usr/bin/env bash
     set -euo pipefail
 
     TEMPLATE_URL="https://raw.githubusercontent.com/fini-net/template-repo/main"
-    temp_file="/tmp/template-version-$$"
+    temp_file=$(mktemp)
+    filepath="$1"
+
+    # shellcheck source=.just/lib/common.sh
+    source .just/lib/common.sh
 
     cleanup() {
         rm -f "$temp_file"
     }
     trap cleanup EXIT
 
-    if [[ ! -f "{{filepath}}" ]]; then
-        echo "{{RED}}Error: Local file not found: {{filepath}}{{NORMAL}}"
+    # The sync system only manages the .just/ tree; keep user-supplied
+    # paths consistent with the manifest-path gate (#347)
+    if ! validate_filepath "$filepath"; then
+        safe_filepath=$(sanitize_for_display "$filepath")
+        echo "{{RED}}Error: Invalid filepath: $safe_filepath{{NORMAL}}"
+        echo "Path must be inside .just/ with no traversal or odd characters"
+        exit 1
+    fi
+
+    if [[ ! -f "$filepath" ]]; then
+        echo "{{RED}}Error: Local file not found: $filepath{{NORMAL}}"
         exit 1
     fi
 
     echo "{{BLUE}}Fetching latest template version...{{NORMAL}}"
-    if ! curl -sSL -f "$TEMPLATE_URL/{{filepath}}" -o "$temp_file" 2>/dev/null; then
+    if ! curl -sSL -f "$TEMPLATE_URL/$filepath" -o "$temp_file" 2>/dev/null; then
         echo "{{RED}}Error: Failed to fetch template version{{NORMAL}}"
         exit 1
     fi
 
     echo
-    diff -u "{{filepath}}" "$temp_file" || true
+    diff -u "$filepath" "$temp_file" || true
 
 # test template sync logic
 [group('Testing/Automation')]
 template_sync_test:
     #!/usr/bin/env bash
     set -euo pipefail
+
+    # Test harness and fixtures are removed by clean_template from derived
+    # repos, so this recipe only works in template-repo itself (#346)
+    if ! grep -q "fini-net/template-repo" .repo.toml 2>/dev/null; then
+        echo "{{YELLOW}}template_sync_test is only available in template-repo{{NORMAL}}"
+        echo "The test harness (.just/lib/template_sync_test.sh and fixtures) is"
+        echo "removed by clean_template in derived repos."
+        exit 0
+    fi
 
     echo "{{BLUE}}Testing template sync logic...{{NORMAL}}"
 

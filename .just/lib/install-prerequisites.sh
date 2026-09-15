@@ -3,7 +3,7 @@
 #
 # Usage: ./.just/lib/install-prerequisites.sh
 #
-# This script checks for required tools (just, gh, shellcheck, markdownlint-cli2, jq, gum, cue, gh-observer)
+# This script checks for required tools (just, gh, shellcheck, markdownlint-cli2, jq, gum, cue, gh-observer, editorconfig-checker)
 # and helps install them:
 #
 # - macOS: Automatically installs missing tools using Homebrew
@@ -52,6 +52,12 @@ if command -v markdownlint-cli2 &>/dev/null; then
 	INSTALLED+=("markdownlint-cli2")
 else
 	MISSING+=("markdownlint-cli2")
+fi
+
+if command -v editorconfig-checker &>/dev/null; then
+	INSTALLED+=("editorconfig-checker")
+else
+	MISSING+=("editorconfig-checker")
 fi
 
 if command -v jq &>/dev/null; then
@@ -146,17 +152,23 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 			;;
 		markdownlint-cli2)
 			echo -e "${CYAN}Installing markdownlint-cli2...${NC}"
-			if command -v brew &>/dev/null; then
-				if brew install markdownlint-cli2; then
-					INSTALL_SUCCESS+=("markdownlint-cli2")
-				else
-					INSTALL_FAILED+=("markdownlint-cli2")
-					echo -e "${RED}Failed to install markdownlint-cli2${NC}"
-				fi
+			if brew install markdownlint-cli2; then
+				INSTALL_SUCCESS+=("markdownlint-cli2")
+			elif command -v npm &>/dev/null && npm install -g markdownlint-cli2; then
+				INSTALL_SUCCESS+=("markdownlint-cli2")
+				echo -e "${YELLOW}Installed markdownlint-cli2 via npm (brew install failed)${NC}"
 			else
-				echo -e "${RED}Homebrew is not installed! Install Homebrew first.${NC}"
-				echo "Install Homebrew: https://brew.sh"
 				INSTALL_FAILED+=("markdownlint-cli2")
+				echo -e "${RED}Failed to install markdownlint-cli2 (tried brew, then npm)${NC}"
+			fi
+			;;
+		editorconfig-checker)
+			echo -e "${CYAN}Installing editorconfig-checker...${NC}"
+			if brew install editorconfig-checker; then
+				INSTALL_SUCCESS+=("editorconfig-checker")
+			else
+				INSTALL_FAILED+=("editorconfig-checker")
+				echo -e "${RED}Failed to install editorconfig-checker${NC}"
 			fi
 			;;
 		jq)
@@ -278,6 +290,15 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
 				echo -e "${YELLOW}(Requires Node.js/npm; brew preferred when available)${NC}"
 			fi
 			;;
+		editorconfig-checker)
+			if [[ "$PKG_MGR" == "pacman" ]]; then
+				echo -e "${CYAN}Install editorconfig-checker:${NC} sudo pacman -S editorconfig-checker"
+			else
+				# no apt/dnf package; official alternatives are the
+				# release binary, npm, or pip - see the installation docs
+				echo -e "${CYAN}Install editorconfig-checker:${NC} See https://editorconfig-checker.github.io (release binary, npm, or pip)"
+			fi
+			;;
 		jq)
 			if [[ "$PKG_MGR" == "apt-get" ]]; then
 				echo -e "${CYAN}Install jq:${NC} sudo apt-get install jq"
@@ -315,7 +336,9 @@ else
 	echo "  just: https://github.com/casey/just#installation"
 	echo "  gh: https://cli.github.com/manual/installation"
 	echo "  shellcheck: https://github.com/koalaman/shellcheck#installing"
-	echo "  markdownlint-cli2: brew install markdownlint-cli2"
+	echo "  markdownlint-cli2: npm install -g markdownlint-cli2"
+	echo "                     (or: brew install markdownlint-cli2 on macOS/Linux)"
+	echo "  editorconfig-checker: https://editorconfig-checker.github.io"
 	echo "  jq: https://stedolan.github.io/jq/download/"
 	echo "  gum: https://github.com/charmbracelet/gum#installation"
 	echo "  cue: https://github.com/cue-lang/cue#installation"
