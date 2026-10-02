@@ -18,7 +18,7 @@ jobs:
       contents: read
     steps:
     - name: 'Auto-assign issue'
-      uses: pozil/auto-assign-issue@v2
+      uses: pozil/auto-assign-issue@v4.0.1
       with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           assignees: chicks-net
