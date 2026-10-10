@@ -1,11 +1,15 @@
-name: Lint GitHub Actions workflows
+name: Lint GitHub Actions
 
 on:
   # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
     branches: [ "main" ]
+    paths:
+      - '.github/**'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - '.github/**'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -18,9 +22,78 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # Single source of truth for both tool versions; Renovate bumps these
+      # via the regex customManagers in .github/renovate.json.
+      ACTIONLINT_VERSION: 1.7.12
+      PYFLAKES_VERSION: 4.0.3
     steps:
-      - uses: actions/checkout@v7
-      - name: Check workflow files
-        uses: docker://rhysd/actionlint:latest
+      # Egress allowlist, by consuming step:
+      #   github.com:443                        - checkout git fetch; release download redirects
+      #   raw.githubusercontent.com:443         - actionlint download script (SHA-pinned)
+      #   release-assets.githubusercontent.com  - release tarballs + checksums.txt (GitHub's release CDN)
+      #   pypi.org:443, files.pythonhosted.org - pipx install pyflakes
+      # Note: GitHub/Azure runner infrastructure domains are auto-allowed by
+      # harden-runner; actionlint itself makes no network calls.
+      - name: Harden the runner (Block all outbound calls except the allowlist)
+        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
         with:
-          args: -color
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            raw.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # shellcheck is preinstalled on hosted runners and actionlint uses it
+      # automatically for `run:` scripts; verify it's actually there so the
+      # checks fail loudly instead of being silently skipped.
+      - name: Verify shellcheck is available
+        run: shellcheck --version
+
+      # pyflakes is bundled in the old Docker image but NOT on hosted runners.
+      # Install it to keep Python `run:` checks; pinned so lint behavior is
+      # reproducible and Renovate keeps it current.
+      - name: Install pyflakes
+        run: pipx install "pyflakes==${PYFLAKES_VERSION}"
+
+      # NOTE: the explicit version arg is required - the script at the pinned
+      # SHA (the v1.7.12 release commit) defaults to 1.7.11 (its default always
+      # lags the release). The URL is pinned to a commit SHA for immutability
+      # (tags are mutable in theory); the script is version-agnostic, so this
+      # SHA stays valid when ACTIONLINT_VERSION is bumped.
+      - name: Download actionlint
+        id: get_actionlint
+        run: bash <(curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash") "${ACTIONLINT_VERSION}"
+        shell: bash
+
+      # Defense-in-depth for the binary the script fetched: verify the release
+      # tarball against the checksums published in the same release, then run
+      # the binary extracted from the verified tarball. This catches CDN or
+      # transport tampering (not tag re-pointing).
+      - name: Verify actionlint against upstream checksums
+        env:
+          ACTIONLINT_EXECUTABLE: ${{ steps.get_actionlint.outputs.executable }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          file="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          cd "${RUNNER_TEMP}"
+          curl -fsSL -O "${base}/${file}"
+          curl -fsSL -O "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          sha256sum -c --ignore-missing "actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          tar xvzf "${file}" -C "$(dirname "${ACTIONLINT_EXECUTABLE}")" actionlint
+        shell: bash
+
+      - name: Check workflow files
+        env:
+          ACTIONLINT_EXECUTABLE: ${{ steps.get_actionlint.outputs.executable }}
+        run: |
+          echo "::add-matcher::.github/actionlint-matcher.json"
+          "${ACTIONLINT_EXECUTABLE}" -color
+        shell: bash
