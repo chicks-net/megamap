@@ -64,6 +64,10 @@ repo_toml_generate:
     FLAG_ASCIINEMA_RECORD=$(echo "$JSON" | jq -r 'if .flags["asciinema-record"] == true then "true" else "false" end')
 
     # Generate .just/repo-toml.sh with all content
+    # NOTE: keep this 'echo "VAR=..."' emit shape - the drift check in
+    # .just/lib/repo_toml_stub_test.sh extracts variable names from
+    # exactly these lines. Switching to printf or a heredoc empties the
+    # extraction and fails that suite, loudly and by design.
     # @sh-quoted string values already include proper shell quoting (e.g., 'value')
     # Flag values are bare true/false strings (no quoting needed)
     # shell_quote-d values use printf %q for safe embedding
@@ -119,6 +123,23 @@ repo_toml_check:
     if [[ ! -f .just/repo-toml.sh ]]; then
         echo "{{YELLOW}}Warning: .just/repo-toml.sh not found{{NORMAL}}"
         echo "{{BLUE}}Run 'just repo_toml_generate' to create it{{NORMAL}}"
+        exit 1
+    fi
+
+    # Refuse shellcheck stubs (#372): 'just shellcheck' used to write a
+    # hardcoded default-flag stub to this path when cue/jq were missing.
+    # A stub is freshly written, so the -nt staleness check below reads it
+    # as up-to-date even though its FLAG_* values may not match
+    # .repo.toml - and every recipe that sources it silently inherits
+    # those defaults. Stubs now live in the lint run's temp dir; this
+    # guard catches stubs written by template versions v10.1 and earlier.
+    # First line only - the stub marker always led the file; a marker
+    # buried mid-file is a hand edit, not a stub.
+    IFS= read -r stub_header < .just/repo-toml.sh || true
+    if [[ "$stub_header" == "# Stub written by"* ]]; then
+        echo "{{RED}}Error: .just/repo-toml.sh is a shellcheck stub, not a generated file{{NORMAL}}"
+        echo "{{BLUE}}Run 'just repo_toml_generate' to regenerate it (requires cue and jq){{NORMAL}}"
+        echo "{{BLUE}}Or delete the stub - sourcing recipes fall back to their built-in defaults{{NORMAL}}"
         exit 1
     fi
 

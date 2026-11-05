@@ -4,6 +4,15 @@
 # Validate a manifest filepath before any filesystem use
 # (guards update_from_template against path traversal from a
 # compromised or misconfigured manifest; see #347)
+# Worked example (#382), so the dense escaping below can't be broken
+# by a future "simplifying" edit:
+#   validate_filepath ".just/lib/common.sh"   -> accept
+#   validate_filepath ".just/..."             -> accept (odd but legal)
+#   validate_filepath ".just/../evil.sh"      -> reject (whole ".." segment)
+#   validate_filepath 'src/a\b.sh'            -> reject (not under .just/; backslash)
+#   validate_filepath $'.just/a\nb.sh'        -> reject (control char)
+# A single quote is accepted on purpose: call sites pass keys with
+# jq --arg, which is quote-safe - only " and \ break jq interpolation.
 validate_filepath() {
 	local filepath="$1"
 
