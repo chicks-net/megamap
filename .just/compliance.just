@@ -36,6 +36,15 @@ compliance_check:
         echo "{{RED}}[gh] You do NOT have a Security Guide.  Don't call the cops.{{NORMAL}}"
     fi
 
+    # SUPPORT.md is not one of GitHub's community-standards files, but the
+    # README links to it - a dangling link is exactly what a compliance check
+    # exists to catch.  An extra-health check like the social preview one.
+    if [[ -e .github/SUPPORT.md ]]; then
+        echo "{{GREEN}}[gh] You have a SUPPORT.md, people know which door to knock on.{{NORMAL}}"
+    else
+        echo "{{RED}}[gh] You do NOT have a SUPPORT.md.  People will find their own way in, possibly through a window.{{NORMAL}}"
+    fi
+
     if [[ -e .github/pull_request_template.md ]]; then
         echo "{{GREEN}}[gh] You have a pull request template, not too pushy.{{NORMAL}}"
     else
@@ -137,21 +146,64 @@ compliance_check:
     # requires `file` for the Binary-Artifacts check.
 
     if command -v file >/dev/null 2>&1; then
-        binaries=$(git ls-files -z | xargs -0 file -- 2>/dev/null | grep -E 'ELF|Mach-O|PE32|MS Windows|JPEG|PNG|GIF|Web/P|PDF' | cut -d: -f1 || true)
+        # One `file` scan, classified twice.  Executables (ELF/Mach-O/PE32)
+        # are what OpenSSF Scorecard's Binary-Artifacts check is actually
+        # about; media formats (images/PDF, including favicon-style 'icon
+        # resource' files) are binary *data* that many derived repos
+        # legitimately ship - Hugo sites, game assets, docs trees - so they
+        # get an advisory note, not red.  Blobs over 1MB are size hygiene,
+        # not artifacts, so they get the same softening.  See #373.
+        # Patterns anchor to the description after the first ':' and require
+        # a word boundary before each keyword (the portable #380 form - no
+        # GNU \b), so a file *named* ELF-notes.md or PDF-spec.txt is
+        # classified by its content, not its name, and a keyword embedded
+        # mid-word in a description (a hypothetical 'SELFIE' contains no
+        # matchable 'ELF') cannot match.  'MS Windows' still matches any
+        # other 'MS Windows ...' description (HtmlHelp data and friends),
+        # flagging it red as an executable - pre-existing behavior kept;
+        # the icon-resource exclusion covers the common favicon case.
+        # compliance_test.sh extracts these patterns by their
+        # single-quoted text, so keep single quotes out of them or the
+        # extraction silently truncates.
+        # Paths containing ':' (or newlines) confuse the anchoring and the
+        # cut -d: -f1 extraction alike - a pre-existing limitation
+        # acceptable for an informational check, as is the large-blob
+        # awk's blind spot for a file literally named total.
+        # The || true below (and on the greps) only shields
+        # set -euo pipefail from file erroring on individual entries;
+        # a missing file binary never reaches this line - the
+        # command -v guard above skips the whole block for that
+        # (homebrew-chicks #120 review).
+        file_types=$(git ls-files -z | xargs -0 file -- 2>/dev/null || true)
+        executables=$(printf '%s\n' "$file_types" | grep -E '^[^:]*:.*(^|[^a-zA-Z0-9_])(ELF|Mach-O|PE32|MS Windows)' | grep -vE '^[^:]*:.*(^|[^a-zA-Z0-9_])icon resource' | cut -d: -f1 || true)
+        media_count=$(printf '%s\n' "$file_types" | grep -cE '^[^:]*:.*(^|[^a-zA-Z0-9_])(JPEG|PNG|GIF|Web/P|PDF|icon resource)' || true)
         large_blobs=$(git ls-files -z | xargs -0 wc -c 2>/dev/null | awk '$1 > 1000000 && $2 != "total" {found++} END {print found+0}')
-        if [[ -z "$binaries" && "${large_blobs:-0}" -eq 0 ]]; then
-            echo "{{GREEN}}[openssf] No binary artifacts in git, your repo is surgically clean.{{NORMAL}}"
-        else
-            echo "{{RED}}[openssf] Binary artifacts committed: $(echo "$binaries" | tr '\n' ' ') plus $large_blobs blob(s) over 1MB.  Git is not a dumpster.{{NORMAL}}"
+        if [[ "${media_count:-0}" -gt 0 ]]; then
+            echo "{{YELLOW}}[openssf] $media_count media/data file(s) (image/PDF) in git.  Images are content, not contraband; only executables count against Binary-Artifacts.{{NORMAL}}"
+        fi
+        if [[ -n "$executables" ]]; then
+            echo "{{RED}}[openssf] Binary executable artifacts committed: $(printf '%s\n' "$executables" | tr '\n' ' ').  Git is not an installer.{{NORMAL}}"
+        fi
+        if [[ "${large_blobs:-0}" -gt 0 ]]; then
+            echo "{{YELLOW}}[openssf] $large_blobs blob(s) over 1MB.  Git is not a dumpster; consider Git LFS.{{NORMAL}}"
+        fi
+        if [[ -z "$executables" ]]; then
+            if [[ "${large_blobs:-0}" -gt 0 ]]; then
+                echo "{{GREEN}}[openssf] No binary executables in git.  Mind the weight advisory above, though.{{NORMAL}}"
+            else
+                echo "{{GREEN}}[openssf] No binary executables in git, your repo is surgically clean.{{NORMAL}}"
+            fi
         fi
     else
         echo "{{BLUE}}[openssf] 'file' command not found, skipping the Binary-Artifacts check.  No judgment.{{NORMAL}}"
     fi
 
     # CI-Tests: workflows that actually run tests
-    # bare-word tokens get \b boundaries so 'jest' can't match 'majestic' etc.;
-    # also \b before 'just' so 'adjust testing' can't match mid-word
-    test_cmds='npm test|npm run test|pytest|go test|cargo test|make test|bazel test|mvn test|gradle test|deno test|\b(tox|jest|rspec|vitest)\b|\bjust [a-z0-9_-]*test'
+    # bare-word tokens get portable character-class boundaries (GNU \b is
+    # treated literally by the BSD grep macOS ships) so 'jest' can't match
+    # 'majestic' etc.; likewise the boundary before 'just' so 'adjust
+    # testing' can't match mid-word
+    test_cmds='npm test|npm run test|pytest|go test|cargo test|make test|bazel test|mvn test|gradle test|deno test|(^|[^a-zA-Z0-9_])(tox|jest|rspec|vitest)([^a-zA-Z0-9_]|$)|(^|[^a-zA-Z0-9_])just [a-z0-9_-]*test'
     if [[ -d .github/workflows ]] && grep -lrE "$test_cmds" .github/workflows >/dev/null 2>&1; then
         echo "{{GREEN}}[openssf] CI runs tests on every push, machines grinding so humans can look away.{{NORMAL}}"
     else
@@ -181,13 +233,17 @@ compliance_check:
     if [[ -d .github/workflows ]]; then
         prt_wfs=$(grep -rl 'pull_request_target' .github/workflows 2>/dev/null || true)
         if [[ -n "$prt_wfs" ]]; then
-            # \b (left boundary only, GNU/BSD extension) rather than -w:
-            # -w demands a non-word char AFTER the match, but real usage
-            # is secrets.NAME, so -w never matches
-            dangerous=$(echo "$prt_wfs" | xargs grep -lE '\bsecrets\.' 2>/dev/null || true)
+            # left word boundary as a portable character class (GNU \b is
+            # literal under BSD grep), so 'mysecrets.foo' stays out while
+            # real 'secrets.NAME' usage stays in; -w was rejected because it
+            # demands a non-word char AFTER the match, which secrets.NAME
+            # never has
+            dangerous=$(echo "$prt_wfs" | xargs grep -lE '(^|[^a-zA-Z0-9_])secrets\.' 2>/dev/null || true)
         fi
-        # -w so 'sudo' can't match inside 'pseudorandom' or 'sudoers'
-        sudo_wfs=$(grep -rlw 'sudo' .github/workflows 2>/dev/null || true)
+        # portable character-class boundaries (not GNU -w) so 'sudo' can't
+        # match inside 'pseudorandom' or 'sudoers', while 'run: sudo make
+        # install' still does
+        sudo_wfs=$(grep -rlE '(^|[^a-zA-Z0-9_])sudo([^a-zA-Z0-9_]|$)' .github/workflows 2>/dev/null || true)
     fi
     if [[ -z "$dangerous" && -z "$sudo_wfs" ]]; then
         echo "{{GREEN}}[openssf] No dangerous workflow patterns, your automations mind their manners.{{NORMAL}}"

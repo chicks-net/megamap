@@ -22,9 +22,15 @@ sync:
     git pull
     git status --porcelain # stp
 
-# PR create v9.9
+# No _has_commits dependency on this wrapper (#374): _pr_inner owns
+# that guard, and declaring it in both places ran it (and its
+# _on_a_branch chain) twice per invocation. The wrapper body only needs
+# the asciinema flag file, not git state - every path delegates to
+# _pr_inner, so the guard still fires exactly once, inside the recipe
+# body it protects.
+# PR create v11.2
 [group('Process')]
-pr: _has_commits
+pr:
     #!/usr/bin/env bash
     set -euo pipefail # strict mode
 
@@ -50,9 +56,17 @@ pr: _has_commits
         exit 0
     fi
 
-    mkdir -p .cache
+    # The root .gitignore is not CHECKSUMS-tracked, so a derived repo
+    # may have no /.cache entry yet: the guard recipe creates .cache/
+    # and gitignores it before recording starts (#375). The guard runs
+    # before _pr_inner's branch/commit guards, so a doomed run may
+    # append .gitignore before failing - intentional, since the entry
+    # is wanted as soon as recording is on and the guard prints exactly
+    # what it changed (Claude review of #427, item 1)
+    just _ensure_cache_ignored
     TMP_CAST=".cache/pr-$$.cast.tmp"
     echo "{{BLUE}}Recording pr flow to $TMP_CAST (asciinema)...{{NORMAL}}"
+    echo "{{YELLOW}}Casts may capture sensitive output (gh, tokens, file dumps) - review before sharing{{NORMAL}}"
     # asciinema 3.x exits 0 regardless of the recorded command's status
     # unless --return is passed; 2.x propagates by default and has no
     # --return flag, so detect support rather than hardcode either way
@@ -187,6 +201,58 @@ _main_branch:
         exit 102
     fi
 
+# recording guard: ensure .cache/ exists and is gitignored before any
+# asciinema recording starts (#375). Cast files are sensitive local
+# artifacts - a recording of a pr/again run can capture gh output,
+# tokens echoed by a misbehaving tool, or accidentally displayed files.
+# The root .gitignore is not CHECKSUMS-tracked and does not ship with
+# this module, so a derived repo that flips flags.asciinema-record = true
+# may have nothing stopping a `git add -A` from sweeping a .cast file
+# into a commit. Probe with git check-ignore and append '/.cache' when
+# nothing covers it yet.
+[group('sanity check')]
+_ensure_cache_ignored:
+    #!/usr/bin/env bash
+    set -euo pipefail # strict mode
+
+    mkdir -p .cache
+
+    # git check-ignore exit codes: 0 = some rule ignores the probe path,
+    # 1 = not ignored, 128+ = git itself failed (e.g. not a repo).
+    # Probe a file under the directory rather than '.cache' itself:
+    # directory-only patterns like '.cache/' do not match a path that
+    # does not exist yet, while the child path matches both '/.cache'
+    # and '.cache/' rules either way (Claude review of #427, item 3).
+    # The non-zero exits are handled cases, so guard the bare call per
+    # the #326/#327 convention.
+    IGNORE_RC=0
+    git check-ignore -q .cache/x.cast || IGNORE_RC=$?
+    if [[ "$IGNORE_RC" -eq 0 ]]; then
+        # already covered by some ignore rule - nothing to do
+        exit 0
+    fi
+    if [[ "$IGNORE_RC" -ne 1 ]]; then
+        # git itself is unhappy (e.g. outside a repo) - warn and carry
+        # on; the flow's branch guards surface the real problem before
+        # anything recorded here could be committed
+        echo "{{YELLOW}}Warning: could not probe ignore status for .cache (git check-ignore rc=$IGNORE_RC){{NORMAL}}"
+        echo "{{YELLOW}}Verify .cache/ is gitignored before committing any cast files{{NORMAL}}"
+        exit 0
+    fi
+
+    # Not ignored yet: append a root-anchored '/.cache' entry (nested
+    # .cache directories stay unaffected). Create .gitignore when
+    # absent, and repair a missing trailing newline first so the
+    # append cannot glue itself onto the current last line.
+    if [[ ! -f .gitignore ]]; then
+        echo "{{YELLOW}}No .gitignore found - creating one so recordings stay out of commits{{NORMAL}}"
+    elif [[ -n "$(tail -c 1 .gitignore)" ]]; then
+        printf '\n' >> .gitignore
+    fi
+    printf '%s\n' "# asciinema recordings (just pr/again, flags.asciinema-record)" >> .gitignore
+    printf '%s\n' "/.cache" >> .gitignore
+    echo "{{YELLOW}}Added '/.cache' to .gitignore - commit this change so the entry sticks; casts may capture sensitive output, review before sharing{{NORMAL}}"
+
 # error if not on a branch with a pull request
 [group('sanity check')]
 [no-cd]
@@ -283,16 +349,289 @@ release rel_version:
         exit 0
     fi
 
-    # Validate version format - must be v, digits, with up to two
-    # .digits groups, nothing else (start-anchored-only regexes let
-    # quote-injection through, #359)
-    if [[ ! "$rel_version" =~ ^v[0-9]+(\.[0-9]+){0,2}$ ]]; then
-        echo "{{RED}}Error: Release version must be v followed by digits and up to two .digits groups (e.g., v1, v1.0, v1.0.0){{NORMAL}}"
+    # Validate version format: v, digits, up to two .digits groups,
+    # then optionally a semver -prerelease and/or +build suffix
+    # (v1.0.0-rc1, v1.0.0+build.5). The suffix character classes are
+    # confined to [0-9A-Za-z.-] and a bracketed [+] (unambiguous on
+    # glibc and macOS libc alike), so they admit no shell
+    # metacharacters, and both anchors stay intact - the #359
+    # quote-injection guard is unchanged in strength. Suffix
+    # acceptance is a deliberate template-level default (#379):
+    # derived repos may tag pre-releases, and locally loosening this
+    # CHECKSUMS-tracked line would show up as drift in
+    # checksums_verify. This is a grammar guard, not a semver
+    # validator - degenerate but metacharacter-free suffixes like
+    # v1.0.0-- pass; anything outside the classes fails.
+    if [[ ! "$rel_version" =~ ^v[0-9]+(\.[0-9]+){0,2}(-[0-9A-Za-z.-]+)?([+][0-9A-Za-z.-]+)?$ ]]; then
+        echo "{{RED}}Error: Release version must be v plus digits with up to two .digits groups (v1, v1.0, v1.0.0), optionally with a -pre or +build suffix (v1.0.0-rc1, v1.0.0+build.5){{NORMAL}}"
         exit 1
     fi
 
-    # Standard release workflow
-    gh release create "$rel_version" --generate-notes
+    # semver_parse TAG: normalize TAG into SV_CORE (major.minor.patch)
+    # and SV_PRE (pre-release identifiers, or empty). Strips the
+    # leading v and the +build suffix (build metadata is
+    # precedence-irrelevant, semver.org #10), splits at the FIRST
+    # hyphen, and zero-pads short cores so v1 -> 1.0.0 and v1.2 ->
+    # 1.2.0 compare on three fields. Returns 2 when the core is
+    # empty, has more than three groups, has a dangling/doubled dot
+    # (v1.2., .1.2, 1..2), or a non-numeric group - which can only
+    # happen to the LATEST tag fetched below ($rel_version already
+    # passed the grammar gate above), so legacy tag schemes in
+    # derived repos skip the check instead of blocking it (#436).
+    # Script globals rather than namerefs: bash 3.2 (macOS) has no
+    # local -n.
+    semver_parse() {
+        local tag="$1"
+        tag="${tag#v}"
+        tag="${tag%%+*}"
+        SV_CORE="${tag%%-*}"
+        if [[ "$tag" == *-* ]]; then
+            SV_PRE="${tag#*-}"
+        else
+            SV_PRE=""
+        fi
+        # Reject pre-release fields the release grammar still admits
+        # but semver forbids: empty identifiers (rc..1, rc., .rc)
+        # would otherwise masquerade as end-of-list in the identifier
+        # compare below. Trailing-hyphen tags (v1.0.0-) keep their
+        # bare-core meaning - empty pre equals no pre. Only the
+        # LATEST tag can reach this with garbage; the release version
+        # itself passed the grammar gate and degenerate forms simply
+        # skip the order check (Claude review of #439, item 2).
+        if [[ -n "$SV_PRE" && ! "$SV_PRE" =~ ^[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$ ]]; then
+            return 2
+        fi
+        # Reject dangling or doubled core dots (v1.2., .1.2, 1..2):
+        # read -ra drops a trailing empty field, so v1.2. would
+        # silently misparse as 1.2.0 instead of skipping the check
+        # like other unparseable legacy tags (Claude review of #439,
+        # round 3 item 1). Interior empties already fail the numeric
+        # validation below; this closes the edge cases.
+        if [[ "$SV_CORE" == .* || "$SV_CORE" == *. || "$SV_CORE" == *..* ]]; then
+            return 2
+        fi
+        local parts
+        IFS='.' read -ra parts <<< "$SV_CORE"
+        if [[ ${#parts[@]} -lt 1 || ${#parts[@]} -gt 3 ]]; then
+            return 2
+        fi
+        local p
+        for p in "${parts[@]}"; do
+            [[ "$p" =~ ^[0-9]+$ ]] || return 2
+        done
+        while [[ ${#parts[@]} -lt 3 ]]; do
+            parts+=("0")
+        done
+        SV_CORE="${parts[0]}.${parts[1]}.${parts[2]}"
+    }
+
+    # num_cmp A B: print -1, 0, or 1 for digit-only strings of any
+    # length. 10#$n arithmetic wraps past 2^63 - a calendar or
+    # timestamp-sized field (20 digits) would silently wrap and
+    # misorder - so compare significant length after stripping
+    # leading zeros, then lexically: equal-length digit strings
+    # order correctly as text, and no (( )) ever touches the values
+    # (which also retires the octal trap outright - Claude review of
+    # #439, round 2 item 1).
+    num_cmp() {
+        local a="$1" b="$2"
+        a="${a#"${a%%[!0]*}"}"
+        b="${b#"${b%%[!0]*}"}"
+        if (( ${#a} < ${#b} )); then
+            echo "-1"
+        elif (( ${#a} > ${#b} )); then
+            echo "1"
+        elif [[ "$a" < "$b" ]]; then
+            echo "-1"
+        elif [[ "$a" > "$b" ]]; then
+            echo "1"
+        else
+            echo "0"
+        fi
+    }
+
+    # semver_compare A B: print -1, 0, or 1 per semver precedence
+    # (semver.org #11.4); returns 2 if either side fails to parse.
+    # sort -V cannot substitute: it orders 1.0.0-rc1 AFTER 1.0.0,
+    # backwards for semver precedence and the exact inversion this
+    # check exists to catch (#436). LC_ALL=C is scoped to the
+    # function so identifier compares are ASCII-lexical, not locale
+    # collation.
+    semver_compare() {
+        local LC_ALL=C
+        semver_parse "$1" || return 2
+        local a_core="$SV_CORE" a_pre="$SV_PRE"
+        semver_parse "$2" || return 2
+        local b_core="$SV_CORE" b_pre="$SV_PRE"
+
+        local a_parts b_parts i cres
+        IFS='.' read -ra a_parts <<< "$a_core"
+        IFS='.' read -ra b_parts <<< "$b_core"
+        for i in 0 1 2; do
+            cres=$(num_cmp "${a_parts[$i]}" "${b_parts[$i]}")
+            if [[ "$cres" == "-1" ]]; then
+                echo "-1"
+                return 0
+            elif [[ "$cres" == "1" ]]; then
+                echo "1"
+                return 0
+            fi
+        done
+
+        # Cores equal: a version WITH a pre-release has LOWER
+        # precedence than the same version without (semver #11.4),
+        # so a stable v1.0.0 legitimately follows v1.0.0-rc1 without
+        # tripping this check.
+        if [[ -z "$a_pre" && -n "$b_pre" ]]; then
+            echo "1"
+            return 0
+        fi
+        if [[ -n "$a_pre" && -z "$b_pre" ]]; then
+            echo "-1"
+            return 0
+        fi
+        if [[ -z "$a_pre" ]]; then
+            echo "0"
+            return 0
+        fi
+
+        # Both pre-releases: compare dot-separated identifiers left
+        # to right. Numerics compare numerically and always LOSE to
+        # alphanumerics, alphanumerics compare ASCII-lexically, and
+        # the shorter list loses once identifiers run out (rc <
+        # rc.1) - semver #11.4.
+        local a_ids b_ids n a_id b_id a_num b_num
+        IFS='.' read -ra a_ids <<< "$a_pre"
+        IFS='.' read -ra b_ids <<< "$b_pre"
+        n=${#a_ids[@]}
+        if (( ${#b_ids[@]} > n )); then
+            n=${#b_ids[@]}
+        fi
+        for (( i = 0; i < n; i++ )); do
+            if [[ $i -ge ${#a_ids[@]} ]]; then
+                # a's identifiers ran out: earlier mismatches already
+                # returned, so all identifiers so far were equal and
+                # the shorter list is lower precedence (rc < rc.1) -
+                # semver #11.4. The bounds test is on array length,
+                # not on the identifier being empty, so an empty
+                # identifier (impossible after semver_parse's
+                # validation, but defense-in-depth for a future
+                # loosening) can never masquerade as end-of-list
+                # (Claude review of #439, item 2).
+                echo "-1"
+                return 0
+            fi
+            if [[ $i -ge ${#b_ids[@]} ]]; then
+                echo "1"
+                return 0
+            fi
+            a_id="${a_ids[$i]}"
+            b_id="${b_ids[$i]}"
+            a_num=0
+            b_num=0
+            if [[ "$a_id" =~ ^[0-9]+$ ]]; then
+                a_num=1
+            fi
+            if [[ "$b_id" =~ ^[0-9]+$ ]]; then
+                b_num=1
+            fi
+            if (( a_num != b_num )); then
+                # Mixed: numeric identifiers have lower precedence
+                # than alphanumeric ones.
+                if (( a_num )); then
+                    echo "-1"
+                else
+                    echo "1"
+                fi
+                return 0
+            fi
+            if (( a_num )); then
+                cres=$(num_cmp "$a_id" "$b_id")
+                if [[ "$cres" == "-1" ]]; then
+                    echo "-1"
+                    return 0
+                elif [[ "$cres" == "1" ]]; then
+                    echo "1"
+                    return 0
+                fi
+            else
+                if [[ "$a_id" < "$b_id" ]]; then
+                    echo "-1"
+                    return 0
+                elif [[ "$a_id" > "$b_id" ]]; then
+                    echo "1"
+                    return 0
+                fi
+            fi
+        done
+        echo "0"
+    }
+
+    # Monotonic version-order check (#436): fetch the latest release
+    # tag and require confirmation before creating a release that
+    # does not strictly advance past it - backwards (v1.0.0 after
+    # v1.2.0) or semver-equal (a +build re-tag). GitHub's Latest
+    # badge follows the newest CREATED release, not the highest
+    # version, so a regressively-tagged release quietly becomes what
+    # users see. Deliberately compared against the latest-marked
+    # release (gh release view), not the historical semver maximum:
+    # the check exists to catch one-shot accidents (v1.0.0 typed
+    # for v1.3.0), and a confirmed backport (v1.0.1 after v1.2.0)
+    # becomes the new baseline instead of nagging on every later
+    # release below the historical high. Backport tags are
+    # legitimate, so declining is a clean cancel (exit 0), the
+    # copilot_rollback convention - not a failure. gh release view
+    # fails outright on a repo with no releases yet; that case (and
+    # a gh/network hiccup) skips the check rather than aborting -
+    # guarded per the #326/#327 convention above.
+    latest_rc=0
+    latest_tag=$(gh release view --json tagName -q .tagName 2>/dev/null) || latest_rc=$?
+    if [[ "$latest_rc" -ne 0 || -z "$latest_tag" ]]; then
+        echo "{{YELLOW}}No existing releases found - skipping version order check{{NORMAL}}"
+    else
+        cmp_rc=0
+        cmp_result=$(semver_compare "$rel_version" "$latest_tag") || cmp_rc=$?
+        if [[ "$cmp_rc" -ne 0 ]]; then
+            # Unparseable latest tag: derived repos may carry legacy
+            # schemes outside the grammar - warn and skip, never
+            # block on an existing tag's shape (#436 design notes).
+            echo "{{YELLOW}}Warning: latest release tag '$latest_tag' is not a parseable version - skipping version order check{{NORMAL}}"
+        elif [[ "$cmp_result" != "1" ]]; then
+            echo "{{RED}}Warning: $rel_version does not advance past the latest release $latest_tag{{NORMAL}}"
+            if [[ "$cmp_result" == "0" ]]; then
+                echo "{{YELLOW}}Same precedence - build metadata does not count as an advance (semver.org #10){{NORMAL}}"
+            else
+                echo "{{YELLOW}}GitHub's Latest badge follows the newest created release, not the highest version{{NORMAL}}"
+            fi
+            if command -v gum &>/dev/null; then
+                if ! gum confirm "Create $rel_version anyway?"; then
+                    echo "{{BLUE}}Release cancelled{{NORMAL}}"
+                    exit 0
+                fi
+            else
+                echo "{{RED}}Error: gum is required to confirm a release that does not advance past the latest{{NORMAL}}"
+                echo "{{YELLOW}}Install with: brew install gum (macOS){{NORMAL}}"
+                echo "{{YELLOW}}Or see: https://github.com/charmbracelet/gum{{NORMAL}}"
+                exit 1
+            fi
+        fi
+    fi
+
+    # Standard release workflow. A GitHub pre-release flag keeps rcs
+    # from wearing the Latest crown over the stable release they
+    # precede (semver precedence). Hyphens can appear in BOTH suffix
+    # classes - semver build identifiers may contain them
+    # (v1.0.0+build-5) - so the pre-release test strips the +build
+    # suffix first; a hyphen left in the core or pre-release part
+    # triggers --prerelease, build metadata alone does not. The if/else
+    # instead of an optional-args array sidesteps the bash 3.2 set -u
+    # empty-array expansion trap the test harness documents.
+    rel_core="${rel_version%%+*}"
+    if [[ "$rel_core" == *-* ]]; then
+        gh release create "$rel_version" --prerelease --generate-notes
+    else
+        gh release create "$rel_version" --generate-notes
+    fi
     sleep 1
     git pull
 
@@ -788,8 +1127,14 @@ again:
         CAST=".cache/again-${PRNUM}-$$.cast"
     fi
 
-    mkdir -p .cache
+    # ensure .cache/ exists and is gitignored before recording (#375).
+    # Like pr, the guard may append .gitignore before this flow's own
+    # guards (pr_update's _on_a_pull_request) get a chance to fail -
+    # intentional: the entry is wanted as soon as recording is on, and
+    # the guard prints exactly what it changed
+    just _ensure_cache_ignored
     echo "{{BLUE}}Recording again flow to $CAST (asciinema)...{{NORMAL}}"
+    echo "{{YELLOW}}Casts may capture sensitive output (gh, tokens, file dumps) - review before sharing{{NORMAL}}"
     # asciinema 3.x exits 0 regardless of the recorded command's status
     # unless --return is passed; 2.x propagates by default and has no
     # --return flag, so detect support rather than hardcode either way

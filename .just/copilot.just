@@ -516,6 +516,9 @@ copilot_rollback:
     # safe paths start with a dot, and bash globs skip dotfiles by
     # default. shopt -s dotglob makes *.bak match them; the [[ -f ]]
     # guard in the loop below keeps directories out. See issue #332.
+    # The matching `shopt -u dotglob` after the loop restores the
+    # default, so a glob added later in this recipe body can't
+    # silently start matching dotfiles (#378).
     shopt -s dotglob
     if ! ls "$BACKUP_DIR"/*.bak &>/dev/null; then
         echo "{{YELLOW}}No backups found{{NORMAL}}"
@@ -572,6 +575,12 @@ copilot_rollback:
             ((i++))
         fi
     done
+
+    # Restore default globbing: the dotglob enable above only needs to
+    # cover the two *.bak globs, and a glob added later in this recipe
+    # body must not silently start matching dotfiles too. Same set/
+    # reset idiom the test harness uses. See issue #378.
+    shopt -u dotglob
 
     if [[ ${#backups[@]} -eq 0 ]]; then
         echo "{{YELLOW}}No valid backups found{{NORMAL}}"

@@ -14,7 +14,12 @@ readonly NORMAL='\033[0m'
 
 readonly TEMPLATE_URL="https://raw.githubusercontent.com/fini-net/template-repo/main"
 readonly MANIFEST_URL="$TEMPLATE_URL/.just/CHECKSUMS.json"
-readonly MANIFEST_FILE=$(mktemp)
+# Assign before the readonly mark so a failed mktemp propagates under
+# set -e instead of the declaration masking its exit status (SC2155).
+# The assignment line below is string-matched by the fixture pin in
+# template_sync_test.sh's run_update_test - keep both sides in sync.
+MANIFEST_FILE=$(mktemp)
+readonly MANIFEST_FILE
 readonly MAX_RETRIES=3
 readonly RETRY_DELAY=2
 
